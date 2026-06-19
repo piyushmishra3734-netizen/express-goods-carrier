@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg-deep:#12151a;--bg-panel:#1b1f26;--bg-panel-2:#20242c;--bg-panel-3:#262b34;--amber:#ff8a1e;--yellow:#ffc93c;--text:#f4f2ed;--muted:#9aa3b0;--muted-2:#6c7585;--green:#4ade80;--line:rgba(255,255,255,0.08);--line-strong:rgba(255,255,255,0.16);--ease:cubic-bezier(.22,1,.36,1);}
+*{box-sizing:border-box;}html{scroll-behavior:smooth;}
+body{margin:0;background:var(--bg-deep);color:var(--text);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+h1,h2,h3{font-family:'Bebas Neue',sans-serif;letter-spacing:.5px;line-height:.95;margin:0;font-weight:400;}
+a{color:inherit;text-decoration:none;}img,svg{display:block;max-width:100%;}
+button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit;}
+::selection{background:var(--amber);color:#15171b;}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px;}
+.eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--amber);display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.eyebrow::before{content:"";width:18px;height:2px;background:var(--amber);display:inline-block;}
+header{position:fixed;top:0;left:0;right:0;z-index:200;background:rgba(18,21,26,.8);backdrop-filter:blur(16px);border-bottom:1px solid var(--line);}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;padding:15px 24px;max-width:1180px;margin:0 auto;}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-text .top{font-family:'Bebas Neue';font-size:16px;}
+.logo-text .bottom{font-family:'IBM Plex Mono';font-size:8.5px;letter-spacing:2px;color:var(--muted);}
+nav.links{display:flex;gap:26px;}
+nav.links a{font-size:13.5px;color:var(--muted);transition:color .22s;}
+nav.links a:hover{color:var(--text);}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;transition:transform .2s,box-shadow .25s;white-space:nowrap;}
+.btn-primary{background:linear-gradient(135deg,var(--amber),#ff6b1e);color:#161311;box-shadow:0 8px 24px -8px rgba(255,138,30,.5);}
+.btn-primary:hover{box-shadow:0 14px 30px -10px rgba(255,138,30,.65);transform:translateY(-2px);}
+.btn-ghost{border:1px solid var(--line-strong);color:var(--text);}
+.btn-ghost:hover{border-color:var(--amber);color:var(--amber);}
+.route-progress{position:fixed;top:0;left:0;height:3px;width:0%;background:linear-gradient(90deg,var(--yellow),var(--amber));z-index:1000;box-shadow:0 0 10px rgba(255,138,30,.5);}
+section{padding:110px 0;position:relative;}
+.page-hero{padding:148px 24px 80px;background:radial-gradient(ellipse at 15% 20%,rgba(255,138,30,.12),transparent 48%),radial-gradient(ellipse at 85% 70%,rgba(255,201,60,.06),transparent 40%),var(--bg-deep);}
+.page-hero h1{font-size:clamp(38px,6.5vw,80px);text-transform:uppercase;margin-bottom:18px;}
+.page-hero h1 span{color:var(--amber);}
+.page-hero p{color:var(--muted);font-size:16.5px;max-width:620px;line-height:1.7;margin-bottom:28px;}
+.content-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:60px;align-items:start;max-width:1180px;margin:0 auto;padding:0 24px;}
+.content-body p{color:var(--muted);font-size:15.5px;line-height:1.75;margin-bottom:18px;}
+.content-body h3{font-family:'Inter';font-weight:700;font-size:19px;color:var(--text);margin:30px 0 14px;}
+.content-side{background:var(--bg-panel);border:1px solid var(--line);border-radius:16px;padding:30px;position:sticky;top:110px;}
+.content-side h4{font-family:'IBM Plex Mono';font-size:11px;letter-spacing:2px;color:var(--muted-2);text-transform:uppercase;margin-bottom:16px;}
+.feature-list{display:flex;flex-direction:column;gap:13px;margin-bottom:22px;}
+.fl-item{display:flex;gap:12px;align-items:flex-start;}
+.fl-dot{flex:none;width:22px;height:22px;border-radius:50%;background:rgba(74,222,128,.12);display:flex;align-items:center;justify-content:center;margin-top:2px;}
+.fl-dot svg{width:11px;height:11px;color:var(--green);}
+.fl-item p{font-size:14px;color:var(--text);margin:0;line-height:1.5;}
+.back-link{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted);font-family:'IBM Plex Mono';letter-spacing:.5px;margin-bottom:30px;transition:color .2s;}
+.back-link:hover{color:var(--amber);}
+.scene-banner{height:160px;border-radius:14px;border:1px solid var(--line);background:linear-gradient(135deg,rgba(255,138,30,.10),rgba(18,21,26,1));display:flex;align-items:center;justify-content:center;margin-bottom:40px;}
+.scene-banner svg{width:80px;height:80px;color:var(--amber);opacity:.8;}
+footer{border-top:1px solid var(--line);padding:40px 0 28px;margin-top:60px;}
+.footer-bottom{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;color:var(--muted-2);font-size:12px;font-family:'IBM Plex Mono';}
+.footer-links{display:flex;gap:28px;flex-wrap:wrap;}
+.footer-links a{color:var(--muted);font-size:13px;transition:color .2s;}
+.footer-links a:hover{color:var(--amber);}
+.f-btn{display:flex;align-items:center;gap:10px;padding:13px 19px;border-radius:50px;font-weight:700;font-size:14px;opacity:0;transform:translateY(18px);transition:opacity .4s,transform .4s;position:relative;text-decoration:none;}
+.f-btn.show{opacity:1;transform:translateY(0);}
+.f-btn .ring{position:absolute;inset:0;border-radius:50px;border:2px solid currentColor;animation:rP 2.2s ease-out infinite;}
+@keyframes rP{0%{opacity:.5;transform:scale(1);}100%{opacity:0;transform:scale(1.3);}}
+.f-call{background:linear-gradient(135deg,var(--amber),#ff6b1e);color:#161311;}
+.f-wa{background:linear-gradient(135deg,#2fdc78,#25D366);color:#0b2415;}
+.float-stack{position:fixed;right:24px;bottom:24px;z-index:300;display:flex;flex-direction:column;align-items:flex-end;gap:12px;}
+@media(max-width:860px){nav.links{display:none;}.content-grid{grid-template-columns:1fr;}.content-side{position:static;}}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;}}
+</style>
+</head>
+<title>Express Delivery — Same Day & Priority Freight — Express Goods Carrier</title>
+<meta name="description" content="Same-day and priority freight dispatch across India. When timing is critical, call Express Goods Carrier.">
+</head>
+<body>
+<div class="route-progress" id="rp"></div>
+<header>
+  <div class="nav-inner">
+    <a href="index.html" class="logo">
+      <svg width="30" height="30" viewBox="0 0 34 34" fill="none"><rect x="1" y="12" width="20" height="14" rx="2" stroke="#ff8a1e" stroke-width="1.8"/><path d="M21 16H27.5L32 21V26H21" stroke="#ff8a1e" stroke-width="1.8"/><circle cx="9" cy="28" r="2.8" fill="#12151a" stroke="#f4f2ed" stroke-width="1.8"/><circle cx="25" cy="28" r="2.8" fill="#12151a" stroke="#f4f2ed" stroke-width="1.8"/><line x1="1" y1="18" x2="12" y2="18" stroke="#ffc93c" stroke-width="1.5"/></svg>
+      <span class="logo-text"><div class="top">EXPRESS GOODS CARRIER</div><div class="bottom" style="margin-top:2px;">PAN-INDIA FREIGHT</div></span>
+    </a>
+    <nav class="links">
+      <a href="index.html">Home</a>
+      <a href="index.html#services">Services</a>
+      <a href="index.html#clients">Clients</a>
+      <a href="index.html#contact">Contact</a>
+    </nav>
+    <div style="display:flex;gap:10px;">
+      <a href="index.html#quote" class="btn btn-ghost">Get Quote</a>
+      <a href="tel:+919826024265" class="btn btn-primary">Call Now</a>
+    </div>
+  </div>
+</header>
+<div class="route-progress" id="rp" style="z-index:999;"></div>
+
+<div class="page-hero">
+  <div class="wrap">
+    <a href="index.html" class="back-link">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+      Back To Home
+    </a>
+    <div class="eyebrow">SERVICE — EXPRESS DELIVERY</div>
+    <h1>Express <span>Delivery</span> Service</h1>
+    <p>When production lines can't wait and orders must ship today — express dispatch with priority routing, dedicated vehicles, and constant coordination.</p>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;">
+      <a href="index.html#quote" class="btn btn-primary">Book Express Dispatch</a>
+      <a href="tel:+919826024265" class="btn btn-ghost">+91 98260 24265</a>
+    </div>
+  </div>
+</div>
+
+<div style="padding:60px 0 90px;">
+  <div class="content-grid">
+    <div class="content-body">
+      <h3>When Speed Is Non-Negotiable</h3>
+<p>A production line halted waiting for components. An urgent order that must reach a client today. Export cargo with a port cutoff in hours. These are the situations where Express Goods Carrier's priority dispatch service exists.</p>
+<p>We maintain on-call vehicle availability for express consignments. One call to our operations team and a truck is assigned and en route to your facility — typically within 2-4 hours of booking confirmation. Priority routing is planned to avoid known transit bottlenecks.</p>
+<h3>Express Service Features</h3>
+<p>Express delivery is available for both FTL and PTL consignments. A dedicated operations contact monitors your shipment throughout transit and provides proactive updates. For cross-India express runs, we coordinate driver handoffs to maintain momentum without rest-stop delays.</p>
+<h3>Industries We Support On Express</h3>
+<p>Automotive component manufacturers needing JIT delivery, pharmaceutical and chemical companies with time-sensitive dispatch windows, electronics and precision equipment companies, export houses with port deadlines, and any industrial company facing production-critical supply chain situations.</p>
+      <div style="margin-top:34px;padding:28px;background:var(--bg-panel);border:1px solid var(--line);border-radius:14px;">
+        <p style="font-family:'IBM Plex Mono';font-size:12px;letter-spacing:2px;color:var(--amber);text-transform:uppercase;margin-bottom:14px;">SERVICE PROMISE</p>
+        <p style="font-size:16.5px;color:var(--text);font-weight:600;line-height:1.5;margin:0;">We dispatch your cargo before charging you. 20+ years on Indian roads, trusted by 500+ companies — <span style="color:var(--amber);">service first, charges later.</span></p>
+      </div>
+    </div>
+    <div>
+      <div class="scene-banner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+      <div class="content-side">
+        <h4>What's Included</h4>
+        <div class="feature-list"><div class="fl-item"><div class="fl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><p>2-4 hour dispatch from confirmation</p></div><div class="fl-item"><div class="fl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><p>Priority routing across India</p></div><div class="fl-item"><div class="fl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><p>FTL and PTL express available</p></div><div class="fl-item"><div class="fl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><p>Dedicated transit monitoring</p></div><div class="fl-item"><div class="fl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><p>Proactive status updates</p></div><div class="fl-item"><div class="fl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><p>Production-critical cargo expertise</p></div></div>
+        <a href="index.html#quote" class="btn btn-primary" style="display:flex;justify-content:center;width:100%;">Book Express Dispatch</a>
+        <div style="margin-top:12px;">
+          <a href="https://wa.me/919826024265?text=Hi+I+need+info+about+express" target="_blank" class="btn btn-ghost" style="display:flex;justify-content:center;width:100%;border-color:rgba(37,211,102,.4);color:#4ade80;">WhatsApp Us</a>
+        </div>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--line);">
+          <p style="font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:1.5px;color:var(--muted-2);text-transform:uppercase;margin-bottom:10px;">CALL DIRECTLY</p>
+          <a href="tel:+919826024265" style="display:block;font-family:'IBM Plex Mono';font-size:17px;color:var(--amber);font-weight:600;margin-bottom:6px;">+91 98260 24265</a>
+          <a href="tel:+919424594681" style="display:block;font-family:'IBM Plex Mono';font-size:17px;color:var(--text);font-weight:600;">+91 94245 94681</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="float-stack">
+  <a href="https://wa.me/919826024265?text=Hi+I+need+a+freight+quote" target="_blank" class="f-btn f-wa" id="fW"><span class="ring"></span><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.121 1.528 5.849L.057 23.998l6.305-1.654A11.954 11.954 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.892 0-3.651-.523-5.148-1.43l-.369-.219-3.821 1.002.961-3.712-.241-.386A9.983 9.983 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg> WhatsApp</a>
+  <a href="tel:+919826024265" class="f-btn f-call" id="fC"><span class="ring"></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.95.33 1.88.61 2.78a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.9.28 1.83.48 2.78.61A2 2 0 0122 16.92z"/></svg> Call Now</a>
+</div>
+<footer><div class="wrap"><div class="footer-bottom"><span>© 2026 EXPRESS GOODS CARRIER</span><div class="footer-links"><a href="ftl.html">FTL</a><a href="ptl.html">PTL</a><a href="industrial.html">Industrial</a><a href="express.html">Express</a><a href="international.html">International</a><a href="index.html">Home</a></div></div></div></footer>
+<script>
+const rp=document.getElementById('rp');
+window.addEventListener('scroll',()=>{const h=document.documentElement;rp.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';},{passive:true});
+setTimeout(()=>{document.getElementById('fC').classList.add('show');document.getElementById('fW').classList.add('show');},1200);
+</script></body></html>
