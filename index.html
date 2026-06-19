@@ -44,13 +44,6 @@ input,select,textarea{font-family:'Inter',sans-serif;}
 @keyframes plFill{to{width:100%;}}
 .pl-truck{opacity:0;animation:plFade .5s .15s var(--ease) forwards;}
 
-/* CUSTOM CURSOR */
-.cursor-dot,.cursor-ring{position:fixed;top:0;left:0;pointer-events:none;border-radius:50%;z-index:9998;transform:translate(-50%,-50%);}
-.cursor-dot{width:6px;height:6px;background:var(--amber);transition:transform .1s;}
-.cursor-ring{width:34px;height:34px;border:1.5px solid rgba(255,138,30,.45);transition:width .28s var(--ease),height .28s var(--ease),border-color .28s var(--ease),transform .06s linear;}
-.cursor-ring.hover{width:52px;height:52px;border-color:var(--amber);}
-@media (pointer:coarse){.cursor-dot,.cursor-ring{display:none;}}
-
 /* GRAIN */
 .grain{position:fixed;inset:0;pointer-events:none;z-index:2;opacity:0.04;mix-blend-mode:overlay;}
 
