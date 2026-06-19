@@ -1124,8 +1124,8 @@ document.addEventListener('mousemove', e => {
   dot.style.transform = `translate(${mx}px,${my}px) translate(-50%,-50%)`;
 });
 function animRing() {
-  rx += (mx - rx) * 0.12;
-  ry += (my - ry) * 0.12;
+  rx += (mx - rx) * 0.35;
+  ry += (my - ry) * 0.35;
   ring.style.transform = `translate(${rx}px,${ry}px) translate(-50%,-50%)`;
   requestAnimationFrame(animRing);
 }
