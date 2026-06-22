@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Account — Express Goods Carrier</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/auth.css">
+<style>
+/* ─── RESET (matches homepage) ──────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:#0a0b0e;color:#fff;font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;min-height:100vh;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;border:none;background:none;cursor:pointer;color:inherit;}
+input,select,textarea{font-family:'Inter',sans-serif;}
+::selection{background:#f5930a;color:#0a0b0e;}
+
+:root{
+  --amber:#f5930a; --amber-h:#ffaa2e; --amber-d:#d97a06;
+  --blk:#0a0b0e; --d1:#0d0f14; --d2:#12151b; --d3:#181c24; --d4:#1e222c;
+  --white:#ffffff; --muted:#8a9ab0; --muted2:#5a6478;
+  --green:#3dd68c; --wa:#25D366;
+  --line:rgba(255,255,255,.08); --linem:rgba(255,255,255,.13);
+  --ease:cubic-bezier(.22,1,.36,1);
+}
+
+/* ─── NAV (same look as homepage) ───────────────────────────── */
+#nav{position:fixed;top:0;left:0;right:0;z-index:500;height:68px;background:rgba(10,11,14,.91);backdrop-filter:blur(18px) saturate(160%);border-bottom:1px solid rgba(255,255,255,.07);}
+.nav-wrap{max-width:1280px;margin:0 auto;padding:0 32px;height:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;}
+.nav-logo{font-size:17px;font-weight:800;letter-spacing:-.2px;display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.nav-logo .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);}
+.nav-back{font-size:13px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:6px;transition:color .2s,background .2s;}
+.nav-back:hover{color:#fff;background:rgba(255,255,255,.05);}
+.nav-right{display:flex;align-items:center;gap:10px;}
+
+main{padding:108px 24px 80px;max-width:1080px;margin:0 auto;}
+
+/* ─── WELCOME ────────────────────────────────────────────────── */
+.dash-hero{margin-bottom:32px;}
+.dash-eyebrow{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:1.5px;color:var(--amber);text-transform:uppercase;margin-bottom:8px;}
+.dash-h1{font-size:clamp(24px,3.4vw,34px);font-weight:800;letter-spacing:-.5px;}
+.dash-h1 span{color:var(--muted);font-weight:600;}
+.dash-sub{color:var(--muted);font-size:14.5px;margin-top:6px;}
+
+/* ─── TABS ───────────────────────────────────────────────────── */
+.dash-tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:32px;overflow-x:auto;padding-bottom:1px;}
+.dash-tab{
+  display:flex;align-items:center;gap:8px;padding:13px 16px;font-size:13.5px;font-weight:600;
+  color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;transition:color .2s,border-color .2s;
+}
+.dash-tab svg{width:16px;height:16px;flex:none;}
+.dash-tab:hover{color:#fff;}
+.dash-tab.on{color:var(--amber);border-bottom-color:var(--amber);}
+
+.dash-panel{display:none;}
+.dash-panel.on{display:block;animation:fadein .25s var(--ease);}
+@keyframes fadein{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+/* ─── CARD ───────────────────────────────────────────────────── */
+.dcard{background:var(--d3);border:1px solid var(--line);border-radius:13px;padding:28px;}
+.dcard + .dcard{margin-top:16px;}
+.dcard h3{font-size:16px;font-weight:700;margin-bottom:6px;}
+.dcard p.hint{color:var(--muted);font-size:13.5px;line-height:1.6;margin-bottom:18px;}
+
+/* Empty state */
+.empty{text-align:center;padding:46px 20px;color:var(--muted);}
+.empty svg{width:38px;height:38px;color:var(--muted2);margin-bottom:14px;}
+.empty p{font-size:14px;margin-bottom:16px;}
+
+.btn-a{display:inline-flex;align-items:center;gap:8px;background:var(--amber);color:var(--blk);font-weight:700;font-size:13.5px;padding:12px 22px;border-radius:7px;transition:background .2s,transform .18s;}
+.btn-a:hover{background:var(--amber-h);transform:translateY(-2px);}
+.btn-ghost{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--linem);color:#fff;font-weight:600;font-size:13.5px;padding:11px 20px;border-radius:7px;transition:border-color .2s;}
+.btn-ghost:hover{border-color:var(--amber);}
+
+/* Routes */
+.route-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:9px;margin-bottom:10px;}
+.route-info{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600;}
+.route-info svg{width:15px;height:15px;color:var(--amber);flex:none;}
+.route-del{color:var(--muted2);padding:6px;border-radius:6px;transition:color .15s,background .15s;}
+.route-del:hover{color:#ff7070;background:rgba(255,80,80,.08);}
+.route-form{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
+.route-form input{flex:1;min-width:140px;background:var(--blk);border:1px solid var(--linem);border-radius:7px;padding:11px 13px;color:#fff;font-size:13.5px;}
+.route-form input:focus{border-color:var(--amber);outline:none;}
+
+/* Profile form */
+.pf-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.pf-fd{margin-bottom:14px;}
+.pf-fd label{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:6px;}
+.pf-fd input{width:100%;background:var(--blk);border:1px solid var(--linem);border-radius:7px;padding:12px 14px;color:#fff;font-size:14px;}
+.pf-fd input:focus{border-color:var(--amber);outline:none;}
+.pf-fd input:disabled{color:var(--muted);cursor:not-allowed;}
+
+.fst{margin-top:10px;font-size:13px;font-family:'IBM Plex Mono';padding:11px 15px;border-radius:7px;display:none;}
+.fst.ok{display:block;background:rgba(61,214,140,.08);border:1px solid rgba(61,214,140,.24);color:var(--green);}
+.fst.er{display:block;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff7070;}
+
+/* Support */
+.sup-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.sup-card{border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;align-items:center;gap:12px;transition:border-color .2s;}
+.sup-card:hover{border-color:var(--amber);}
+.sup-card svg{width:22px;height:22px;color:var(--amber);flex:none;}
+.sup-card strong{display:block;font-size:14px;}
+.sup-card span{font-size:12.5px;color:var(--muted);}
+
+@media(max-width:700px){.pf-row,.sup-grid{grid-template-columns:1fr;}main{padding:96px 16px 60px;}}
+
+/* guard screen while auth resolves */
+#guard{position:fixed;inset:0;background:#0a0b0e;display:flex;align-items:center;justify-content:center;z-index:50;color:var(--muted);font-size:13px;font-family:'IBM Plex Mono';letter-spacing:.5px;}
+</style>
+</head>
+<body>
+
+<div id="guard">LOADING ACCOUNT…</div>
+
+<header id="nav">
+  <div class="nav-wrap">
+    <a href="egc-phase1-refined-2.html" class="nav-logo"><span class="dot"></span> Express Goods Carrier</a>
+    <a href="egc-phase1-refined-2.html" class="nav-back">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Back to website
+    </a>
+    <div class="nav-right">
+      <div id="authNav"></div>
+    </div>
+  </div>
+</header>
+
+<main id="dashMain" style="display:none;">
+
+  <div class="dash-hero">
+    <div class="dash-eyebrow">My Account</div>
+    <h1 class="dash-h1">Welcome back, <span id="dashName">there</span></h1>
+    <p class="dash-sub">Everything about your shipments, in one simple place.</p>
+  </div>
+
+  <div class="dash-tabs">
+    <button class="dash-tab on" data-tab="shipment">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="6" width="14" height="10"/><path d="M15 9h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="18.5" cy="18" r="1.8"/></svg>
+      New Shipment
+    </button>
+    <button class="dash-tab" data-tab="history">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Order History
+    </button>
+    <button class="dash-tab" data-tab="routes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H15a3 3 0 003-3v-2a3 3 0 00-3-3H9a3 3 0 01-3-3V6.5"/></svg>
+      Favorite Routes
+    </button>
+    <button class="dash-tab" data-tab="profile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Profile
+    </button>
+    <button class="dash-tab" data-tab="support">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4.5 8-12V5l-8-3-8 3v5c0 7.5 8 12 8 12z"/><path d="M9 12l2 2 4-4"/></svg>
+      Support
+    </button>
+  </div>
+
+  <!-- NEW SHIPMENT (placeholder — Phase 3 builds the real flow) -->
+  <div class="dash-panel on" id="panel-shipment">
+    <div class="dcard">
+      <h3>Start a new shipment</h3>
+      <p class="hint">Smart quotation &amp; instant booking is coming in a future phase. For now, send us your shipment details and we'll call you back with a rate — same as the homepage form, but pre-filled with your saved details.</p>
+      <a href="egc-phase1-refined-2.html#quote" class="btn-a">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        Request A Quote
+      </a>
+    </div>
+  </div>
+
+  <!-- ORDER HISTORY (placeholder — Phase 3+ connects real shipment data) -->
+  <div class="dash-panel" id="panel-history">
+    <div class="dcard">
+      <h3>Order history</h3>
+      <p class="hint">Every shipment you book will show up here automatically.</p>
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <p>No shipments yet — your booking history will appear here.</p>
+        <a href="egc-phase1-refined-2.html#quote" class="btn-ghost">Book your first shipment</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAVORITE ROUTES (functional) -->
+  <div class="dash-panel" id="panel-routes">
+    <div class="dcard">
+      <h3>Favorite routes</h3>
+      <p class="hint">Save routes you book often — these will auto-fill future bookings.</p>
+      <div id="routeList"></div>
+      <div class="route-form">
+        <input type="text" id="rPickup" placeholder="Pickup city (e.g. Indore)">
+        <input type="text" id="rDelivery" placeholder="Delivery city (e.g. Pune)">
+        <button class="btn-a" type="button" onclick="DASH.addRoute()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Save Route
+        </button>
+      </div>
+      <div class="fst" id="routeMsg"></div>
+    </div>
+  </div>
+
+  <!-- PROFILE (functional) -->
+  <div class="dash-panel" id="panel-profile">
+    <div class="dcard">
+      <h3>Your profile</h3>
+      <p class="hint">This information auto-fills every future booking — update it any time.</p>
+      <form id="profileForm" onsubmit="return DASH.saveProfile(event)">
+        <div class="pf-fd"><label>Email</label><input type="email" id="pEmail" disabled></div>
+        <div class="pf-row">
+          <div class="pf-fd"><label>Company Name</label><input type="text" id="pCompany" required></div>
+          <div class="pf-fd"><label>Contact Person</label><input type="text" id="pContact" required></div>
+        </div>
+        <div class="pf-row">
+          <div class="pf-fd"><label>Mobile Number</label><input type="tel" id="pMobile" required></div>
+          <div class="pf-fd"><label>GST Number (Optional)</label><input type="text" id="pGst"></div>
+        </div>
+        <button class="btn-a" type="submit">Save Changes</button>
+      </form>
+      <div class="fst" id="profileMsg"></div>
+    </div>
+  </div>
+
+  <!-- SUPPORT (placeholder — AI Assistant arrives in a future phase) -->
+  <div class="dash-panel" id="panel-support">
+    <div class="dcard">
+      <h3>Need help?</h3>
+      <p class="hint">Our team replies fast. AI-assisted support is planned for a future phase.</p>
+      <div class="sup-grid">
+        <a class="sup-card" href="tel:+919826024265">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+          <span><strong>Call Us</strong><span>+91 98260 24265</span></span>
+        </a>
+        <a class="sup-card" href="https://wa.me/919826024265" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
+          <span><strong>WhatsApp</strong><span>Usually replies within minutes</span></span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Firebase — Phase 2 -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>
