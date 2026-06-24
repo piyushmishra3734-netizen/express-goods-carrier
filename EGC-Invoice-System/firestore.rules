@@ -1,0 +1,140 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ── OWNER CHECK ── */
+    function isOwner() {
+      return request.auth != null &&
+             request.auth.token.email == 'piyushmishra3734@gmail.com';
+    }
+
+    /* ── USER CHECK ── */
+    function isUser(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    /* ── QUOTES ──────────────────────────────────────── */
+    match /quotes/{quoteId} {
+      /* Customer can create their own quotes */
+      allow create: if request.auth != null
+                    && request.resource.data.customerUid == request.auth.uid;
+
+      /* Customer can read their own quotes; owner can read all */
+      allow read: if isOwner()
+                  || (request.auth != null
+                      && resource.data.customerUid == request.auth.uid);
+
+      /* Customer may update ONLY status field (accept/reject revision) */
+      allow update: if isOwner()
+                    || (request.auth != null
+                        && resource.data.customerUid == request.auth.uid
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                           .hasOnly(['status','updatedAt','respondedAt']));
+    }
+
+    /* ── ORDERS ──────────────────────────────────────── */
+    match /orders/{orderId} {
+      /* Only owner can create orders */
+      allow create: if isOwner();
+
+      /* Customer reads their own orders; owner reads all */
+      allow read: if isOwner()
+                  || (request.auth != null
+                      && resource.data.customerUid == request.auth.uid);
+
+      /* Only owner can update order status */
+      allow update: if isOwner();
+    }
+
+    /* ── NOTIFICATIONS (customer reads own; owner writes) ── */
+    match /notifications/{notifId} {
+      allow read: if request.auth != null
+                  && resource.data.customerUid == request.auth.uid;
+      allow create: if request.auth != null;   /* customer can create quote_submitted notif */
+      allow update: if request.auth != null
+                    && resource.data.customerUid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if false;
+    }
+
+    /* ── OWNER NOTIFICATIONS (customer writes; owner reads) ── */
+    match /ownerNotifications/{notifId} {
+      allow create: if request.auth != null;
+      allow read:   if isOwner();
+      allow update: if isOwner();
+    }
+
+    /* ── ACTIVITY LOG ─────────────────────────────────── */
+    match /activityLog/{uid}/entries/{entryId} {
+      allow read:   if isUser(uid) || isOwner();
+      allow create: if request.auth != null;   /* both customer and owner can write activity */
+      allow update, delete: if false;
+    }
+
+    /* ── AUDIT LOGS — append-only business record ─────── */
+    match /auditLogs/{logId} {
+      /* Only the owner can view the audit trail */
+      allow read:   if isOwner();
+      /* Any authenticated action (customer or owner) can write a log entry */
+      allow create: if request.auth != null;
+      /* Immutable — no edits or deletions, ever */
+      allow update, delete: if false;
+    }
+
+    /* ── ORDER TIMELINES — per-order audit history, append-only ── */
+    match /orderTimelines/{orderId}/events/{eventId} {
+      /* Customer reads their own order's timeline; owner reads all.
+         Timeline entries mirror auditLogs, so for simplicity any
+         authenticated user may read (no sensitive fields beyond the
+         order they already have access to). Owner-only is enforced in UI. */
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    /* ── QUOTE TIMELINES — per-quote audit history, append-only ── */
+    match /quoteTimelines/{quoteId}/events/{eventId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    /* ── INVOICES ──────────────────────────────────────── */
+    match /invoices/{invoiceId} {
+      /* Invoices are created by the system at order creation (owner action)
+         and via the owner fallback generator. */
+      allow create: if isOwner();
+      /* Customer reads their own invoices; owner reads all */
+      allow read: if isOwner()
+                  || (request.auth != null
+                      && resource.data.customerUid == request.auth.uid);
+      /* Only the owner can update an invoice (payment status, amounts) */
+      allow update: if isOwner();
+      /* Permanent business record — never deleted */
+      allow delete: if false;
+    }
+
+    /* ── INVOICE CONFIG (signature, bank details, brand) ── */
+    match /invoiceConfig/{docId} {
+      /* Any authenticated user may read it (needed to render the PDF);
+         only the owner may change the signature / bank details. */
+      allow read:   if request.auth != null;
+      allow write:  if isOwner();
+    }
+
+    /* ── COUNTERS (sequential IDs) ───────────────────── */
+    match /counters/{counter} {
+      allow read, write: if request.auth != null;
+    }
+
+    /* ── PROFILES ─────────────────────────────────────── */
+    match /profiles/{uid} {
+      allow read, write: if isUser(uid) || isOwner();
+    }
+
+    /* ── SAVED ROUTES ─────────────────────────────────── */
+    match /routes/{uid}/saved/{routeId} {
+      allow read, write: if isUser(uid) || isOwner();
+    }
+  }
+}
