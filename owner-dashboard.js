@@ -1750,7 +1750,7 @@
             '<label>Driver Mobile<input type="text" id="lr-drivermob-' + id + '" value="' + EGC.esc(lr.driverMobile || '') + '"></label>' +
             '<label>Transport Mode<input type="text" id="lr-tmode-' + id + '" value="' + EGC.esc(lr.transportMode || 'Road') + '"></label>' +
             '<label>Dispatch Mode<input type="text" id="lr-dispatch-' + id + '" value="' + EGC.esc(lr.dispatchMode || 'Door') + '"></label>' +
-            '<label>E-Way Bill Number (optional)<input type="text" id="lr-eway-' + id + '" value="' + EGC.esc(lr.ewayBill || '') + '" placeholder="Shown on LR only if provided"></label>' +
+            '<label>E-Way Bill Number (optional)<input type="text" id="lr-eway-' + id + '" value="' + EGC.esc(lr.ewayBill || '') + '" placeholder="Shown on LR &amp; Invoice only if provided"></label>' +
           '</div>' +
 
           '<div class="ms-section">Cargo</div>' +

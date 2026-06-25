@@ -244,6 +244,7 @@
       vehicleType:     pick(order, d, 'vehicleType'),
       vehicleNumber:   pick(order, d, 'vehicleNumber'),
       remarks:         pick(order, d, 'remarks'),
+      ewayBill:        pick(order, d, 'ewayBill'),
 
       /* charges mapped onto the invoice's expected keys */
       freightCharges:  c.lines.freight,

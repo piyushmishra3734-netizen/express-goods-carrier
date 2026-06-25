@@ -299,7 +299,7 @@
       '<div class="gstbar">' +
         '<span>GST : <b>' + esc(b.gst) + '</b></span><span class="sep">|</span>' +
         '<span>PAN : <b>' + esc(b.pan) + '</b></span><span class="sep">|</span>' +
-        '<span>Transport Reg : <b>' + esc(b.transportReg) + '</b></span>' +
+        '<span>UDYAM Reg : <b>' + esc(b.udyam) + '</b></span>' +
       '</div>' +
 
       /* ── CONSIGNOR / CONSIGNEE / META (3-column) ── */
@@ -355,22 +355,8 @@
 
       /* ── CHARGES + SIDE PANELS ── */
       '<div class="mid-row">' +
-        '<div class="fc-box">' +
-          '<div class="fc-head"><span>FREIGHT &amp; CHARGES</span><span>AMOUNT (Rs.)</span></div>' +
-          chargeRow('FREIGHT', lr.freight) +
-          chargeRow('F.O.V', lr.fov) +
-          chargeRow('LABOUR', lr.labour) +
-          chargeRow('LOCAL COLLECTION', lr.localCollection) +
-          chargeRow('DOOR DELIVERY', lr.doorDelivery) +
-          chargeRow('DOCKET CHARGES', lr.docketCharges) +
-          (toNum(lr.haltingCharges) ? chargeRow('HALTING CHARGES', lr.haltingCharges) : '') +
-          (toNum(lr.extraCharges) ? chargeRow('EXTRA CHARGES', lr.extraCharges) : '') +
-          '<div class="fc-row fc-total"><span class="fc-k">TOTAL</span><span class="fc-v">' + fmtMoney(t.subTotal) + '</span></div>' +
-          (toNum(t.discount) ? '<div class="fc-row"><span class="fc-k">DISCOUNT</span><span class="fc-v">- ' + fmtMoney(t.discount) + '</span></div>' : '') +
-          '<div class="fc-row"><span class="fc-k">SGST ' + esc(lr.sgstRate || 0) + '%</span><span class="fc-v">' + fmtMoney(t.sgst) + '</span></div>' +
-          '<div class="fc-row"><span class="fc-k">CGST ' + esc(lr.cgstRate || 0) + '%</span><span class="fc-v">' + fmtMoney(t.cgst) + '</span></div>' +
-          '<div class="fc-grand"><span>GRAND TOTAL</span><span>' + fmtMoney(t.grandTotal) + '</span></div>' +
-        '</div>' +
+        /* LEFT: side panel (special instructions, dispatch, GST, payment) —
+           matches the original Express Goods Carrier LR layout. */
         '<div class="side-col">' +
           '<div class="sp">' +
             '<div class="sp-h">SPECIAL INSTRUCTIONS</div>' +
@@ -393,6 +379,23 @@
             '<div class="sp-hd">INSURANCE</div>' +
             '<div class="sp-bc small">' + esc(lr.insuranceDetails) + '</div>' +
           '</div>' : '') +
+        '</div>' +
+        /* RIGHT: Freight & Charges. */
+        '<div class="fc-box">' +
+          '<div class="fc-head"><span>FREIGHT &amp; CHARGES</span><span>AMOUNT (Rs.)</span></div>' +
+          chargeRow('FREIGHT', lr.freight) +
+          chargeRow('F.O.V', lr.fov) +
+          chargeRow('LABOUR', lr.labour) +
+          chargeRow('LOCAL COLLECTION', lr.localCollection) +
+          chargeRow('DOOR DELIVERY', lr.doorDelivery) +
+          chargeRow('DOCKET CHARGES', lr.docketCharges) +
+          (toNum(lr.haltingCharges) ? chargeRow('HALTING CHARGES', lr.haltingCharges) : '') +
+          (toNum(lr.extraCharges) ? chargeRow('EXTRA CHARGES', lr.extraCharges) : '') +
+          '<div class="fc-row fc-total"><span class="fc-k">TOTAL</span><span class="fc-v">' + fmtMoney(t.subTotal) + '</span></div>' +
+          (toNum(t.discount) ? '<div class="fc-row"><span class="fc-k">DISCOUNT</span><span class="fc-v">- ' + fmtMoney(t.discount) + '</span></div>' : '') +
+          '<div class="fc-row"><span class="fc-k">SGST ' + esc(lr.sgstRate || 0) + '%</span><span class="fc-v">' + fmtMoney(t.sgst) + '</span></div>' +
+          '<div class="fc-row"><span class="fc-k">CGST ' + esc(lr.cgstRate || 0) + '%</span><span class="fc-v">' + fmtMoney(t.cgst) + '</span></div>' +
+          '<div class="fc-grand"><span>GRAND TOTAL</span><span>' + fmtMoney(t.grandTotal) + '</span></div>' +
         '</div>' +
       '</div>' +
 

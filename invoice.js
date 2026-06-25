@@ -32,7 +32,7 @@
     address:     'H.O.- Shop 4, Mhow Neemuch Road, Near D\u2019 Mart, Sector No. 1, Pithampur, Distt- Dhar, Madhya Pradesh - 454775',
     gst:         '23AQOPM7933Q3ZX',
     pan:         'AQOPM7933Q',
-    transportReg:'9826024265'
+    udyam:       'UDYAM-MP-00-0000000'   /* TODO: replace with EGC's actual UDYAM Registration No. */
   };
   window.INV.BRAND = ORBIT_BRAND;
 
@@ -426,7 +426,7 @@
     '<div class="gstbar">' +
       '<span>GST : <b>' + esc(b.gst) + '</b></span><span class="sep">|</span>' +
       '<span>PAN : <b>' + esc(b.pan) + '</b></span><span class="sep">|</span>' +
-      '<span>Transport Reg : <b>' + esc(b.transportReg) + '</b></span>' +
+      '<span>UDYAM Reg : <b>' + esc(b.udyam) + '</b></span>' +
     '</div>' +
     /* bill to + meta */
     '<div class="row2">' +
@@ -443,6 +443,7 @@
         '<div class="mrow"><span class="mi">\u25A4</span><span class="mk">Invoice Number</span><span class="mc">:</span><span class="mv">' + esc(inv.invoiceNumber) + '</span></div>' +
         '<div class="mrow"><span class="mi">\u25A4</span><span class="mk">Due Date</span><span class="mc">:</span><span class="mv">' + fmtDMY(inv.dueDate) + '</span></div>' +
         '<div class="mrow"><span class="mi">\u25A4</span><span class="mk">Order ID</span><span class="mc">:</span><span class="mv">' + esc(inv.orderId || '\u2014') + '</span></div>' +
+        (inv.ewayBill ? '<div class="mrow"><span class="mi">\u25A4</span><span class="mk">E-Way Bill</span><span class="mc">:</span><span class="mv">' + esc(inv.ewayBill) + '</span></div>' : '') +
       '</div>' +
     '</div>' +
     /* LR table */
