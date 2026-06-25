@@ -570,31 +570,36 @@
   /* Accept revision → status: customer_accepted */
   window.CUST.acceptRevision = function (qid) {
     if (!currentUser) return;
-    fbDB.collection('quotes').doc(qid).update({
-      status:     EGC.QUOTE_STATUS.CUSTOMER_ACCEPTED,
-      updatedAt:  firebase.firestore.FieldValue.serverTimestamp(),
-      respondedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).then(function () {
-      toast(true, 'Revision accepted \u2014 waiting for owner approval.');
+    /* Guard: only a quote still in 'revised_by_owner' can be accepted. A stale
+       tab must not revert an already-approved/closed quote. Re-read first. */
+    var ref = fbDB.collection('quotes').doc(qid);
+    ref.get().then(function (snap) {
+      if (!snap.exists) { toast(false, 'Quote no longer exists.'); return; }
+      var cur = snap.data();
+      if (cur.status !== EGC.QUOTE_STATUS.REVISED) {
+        toast(false, 'This quote can no longer be changed (status: ' + (cur.status || 'unknown') + ').');
+        if (typeof loadQuotes === 'function') loadQuotes();
+        return;
+      }
+      return ref.update({
+        status:     EGC.QUOTE_STATUS.CUSTOMER_ACCEPTED,
+        updatedAt:  firebase.firestore.FieldValue.serverTimestamp(),
+        respondedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(function () {
+        toast(true, 'Revision accepted \u2014 waiting for owner approval.');
 
-      /* Log the action */
-      EGC.logActivity(currentUser.uid, 'quote_accepted',
-        'You accepted the revised quote ' + qid + '.',
-        { quoteId: qid });
-
-      EGC.logAudit('quote_accepted', 'Customer accepted the revised quote ' + qid + '.', {
-        targetType: 'quote', targetId: qid, quoteId: qid,
-        previousValue: 'revised_by_owner', newValue: 'customer_accepted'
-      });
-
-      /* Optionally notify owner (write to a shared owner-notifications collection) */
-      fbDB.collection('ownerNotifications').add({
-        type:      'customer_accepted',
-        message:   'Customer accepted revised quote ' + qid + '. Ready to approve.',
-        quoteId:   qid,
-        customerUid: currentUser.uid,
-        read:      false,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        EGC.logActivity(currentUser.uid, 'quote_accepted',
+          'You accepted the revised quote ' + qid + '.', { quoteId: qid });
+        EGC.logAudit('quote_accepted', 'Customer accepted the revised quote ' + qid + '.', {
+          targetType: 'quote', targetId: qid, quoteId: qid,
+          previousValue: 'revised_by_owner', newValue: 'customer_accepted'
+        });
+        fbDB.collection('ownerNotifications').add({
+          type:      'customer_accepted',
+          message:   'Customer accepted revised quote ' + qid + '. Ready to approve.',
+          quoteId:   qid, customerUid: currentUser.uid, read: false,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
       });
     }).catch(function (err) {
       toast(false, 'Could not accept revision: ' + err.message);
@@ -604,29 +609,33 @@
   /* Reject revision → status: customer_rejected */
   window.CUST.rejectRevision = function (qid) {
     if (!currentUser) return;
-    fbDB.collection('quotes').doc(qid).update({
-      status:     EGC.QUOTE_STATUS.CUSTOMER_REJECTED,
-      updatedAt:  firebase.firestore.FieldValue.serverTimestamp(),
-      respondedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }).then(function () {
-      toast(true, 'Revision rejected.');
-
-      EGC.logActivity(currentUser.uid, 'quote_rejected_by_customer',
-        'You rejected the revised quote ' + qid + '.',
-        { quoteId: qid });
-
-      EGC.logAudit('quote_rejected', 'Customer rejected the revised quote ' + qid + '.', {
-        targetType: 'quote', targetId: qid, quoteId: qid,
-        previousValue: 'revised_by_owner', newValue: 'customer_rejected'
-      });
-
-      fbDB.collection('ownerNotifications').add({
-        type:      'customer_rejected',
-        message:   'Customer rejected the revision for quote ' + qid + '.',
-        quoteId:   qid,
-        customerUid: currentUser.uid,
-        read:      false,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    var ref = fbDB.collection('quotes').doc(qid);
+    ref.get().then(function (snap) {
+      if (!snap.exists) { toast(false, 'Quote no longer exists.'); return; }
+      var cur = snap.data();
+      if (cur.status !== EGC.QUOTE_STATUS.REVISED) {
+        toast(false, 'This quote can no longer be changed (status: ' + (cur.status || 'unknown') + ').');
+        if (typeof loadQuotes === 'function') loadQuotes();
+        return;
+      }
+      return ref.update({
+        status:     EGC.QUOTE_STATUS.CUSTOMER_REJECTED,
+        updatedAt:  firebase.firestore.FieldValue.serverTimestamp(),
+        respondedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(function () {
+        toast(true, 'Revision rejected.');
+        EGC.logActivity(currentUser.uid, 'quote_rejected_by_customer',
+          'You rejected the revised quote ' + qid + '.', { quoteId: qid });
+        EGC.logAudit('quote_rejected', 'Customer rejected the revised quote ' + qid + '.', {
+          targetType: 'quote', targetId: qid, quoteId: qid,
+          previousValue: 'revised_by_owner', newValue: 'customer_rejected'
+        });
+        fbDB.collection('ownerNotifications').add({
+          type:      'customer_rejected',
+          message:   'Customer rejected the revision for quote ' + qid + '.',
+          quoteId:   qid, customerUid: currentUser.uid, read: false,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
       });
     }).catch(function (err) {
       toast(false, 'Could not reject revision: ' + err.message);

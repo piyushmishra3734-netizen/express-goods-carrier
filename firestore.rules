@@ -24,12 +24,16 @@ service cloud.firestore {
                   || (request.auth != null
                       && resource.data.customerUid == request.auth.uid);
 
-      /* Customer may update ONLY status field (accept/reject revision) */
+      /* Customer may update ONLY the status field, and ONLY to the two
+         legitimate customer transitions (accept / reject a revision). They
+         cannot self-approve or set arbitrary statuses. Owner is unrestricted. */
       allow update: if isOwner()
                     || (request.auth != null
                         && resource.data.customerUid == request.auth.uid
                         && request.resource.data.diff(resource.data).affectedKeys()
-                           .hasOnly(['status','updatedAt','respondedAt']));
+                           .hasOnly(['status','updatedAt','respondedAt'])
+                        && request.resource.data.status in ['customer_accepted','customer_rejected']
+                        && resource.data.status == 'revised_by_owner');
     }
 
     /* ── ORDERS ──────────────────────────────────────── */
@@ -159,6 +163,36 @@ service cloud.firestore {
     /* ── SAVED ROUTES ─────────────────────────────────── */
     match /routes/{uid}/saved/{routeId} {
       allow read, write: if isUser(uid) || isOwner();
+    }
+
+    /* ══ ACCOUNTING — OWNER ONLY ══════════════════════════
+       Customers are viewers of invoices/LRs only; they have NO access to any
+       accounting collection. Posted journal entries are IMMUTABLE: they may be
+       created and read, and only their status/void-link fields may be patched
+       (to mark a void). They can never be deleted — corrections are new entries. */
+    match /accounts/{code} {
+      allow read, write: if isOwner();
+    }
+    match /parties/{partyId} {
+      allow read, write: if isOwner();
+    }
+    match /accountingSettings/{doc} {
+      allow read, write: if isOwner();
+    }
+    match /journalEntries/{entryId} {
+      allow read:   if isOwner();
+      allow create: if isOwner()
+                    && request.resource.data.totalDebit == request.resource.data.totalCredit;
+      /* Only allow updates that mark an entry void / add a posting key — never
+         changes to amounts or lines of a posted entry. */
+      allow update: if isOwner()
+                    && request.resource.data.totalDebit == resource.data.totalDebit
+                    && request.resource.data.totalCredit == resource.data.totalCredit
+                    && request.resource.data.lines == resource.data.lines;
+      allow delete: if false;
+    }
+    match /vouchers/{voucherId} {
+      allow read, write: if isOwner();
     }
   }
 }

@@ -67,6 +67,10 @@
        session so the audit trail and customer notices can't silently vanish. */
     if (EGC.flushReliableQueue) EGC.flushReliableQueue();
 
+    /* Accounting: ensure the Chart of Accounts + settings exist (idempotent),
+       then load settings into cache for the posting engine. */
+    if (window.ACC && ACC.ensureSeeded) ACC.ensureSeeded();
+
     loadPendingQuotes();
     loadRevisedQuotes();
     loadOwnerOrders();
@@ -532,6 +536,23 @@
           targetType: 'lorryReceipt', targetId: lrNumber, orderId: orderId, quoteId: q.quoteId,
           previousValue: null, newValue: { lrNumber: lrNumber, docketNumber: docketNo }
         });
+
+        /* ── AUTOMATIC ACCOUNTING ──
+           Post the Sales journal entry from the order (SSoT) and, if an advance
+           was taken at approval, a Receipt entry. Reliable follow-up (B3): never
+           blocks approval, idempotent so retries can't double-post. The whole
+           customer ledger / outstanding / reports flow derives from these. */
+        if (window.ACC && ACC.autoPostSales) {
+          EGC.reliable(function () {
+            return ACC.loadSettings().then(function () {
+              return ACC.autoPostSales(orderData).then(function () {
+                var adv = SHIP.computeCharges(orderData).advance;
+                if (adv > 0) return ACC.autoPostReceipt(orderData, adv, 'bank');
+              });
+            });
+          }, { label: 'autopost:sales:' + orderId,
+               persist: { kind: 'audit', args: { action: 'autopost_pending', summary: 'Auto-post sales pending for ' + orderId, details: { orderId: orderId } } } });
+        }
         return orderId;
       });
     }).then(function (orderId) {
@@ -1866,6 +1887,47 @@
     function val(id)  { var el = $('#lr-' + id + '-' + docId); return el ? el.value : ''; }
     function numv(id) { return INV.toNum(val(id)); }
 
+    /* ── H3 VALIDATION ── Prevent invalid business data from reaching the
+       Order (and therefore every document, the ledger and reports). All
+       numeric fields are bounded; the most important guard is that a discount
+       can never exceed the charge subtotal (which would make GST and the
+       invoice total negative). */
+    var vFreight = numv('freight'), vFov = numv('fov'), vLabour = numv('labour'),
+        vLocal = numv('localcol'), vDoor = numv('doordel'), vDocket = numv('docket'),
+        vDiscount = numv('discount'), vSgst = numv('sgst'), vCgst = numv('cgst'),
+        vAdvance = numv('advance'), vReceived = numv('received'),
+        vAweight = INV.toNum(val('aweight')), vCweight = INV.toNum(val('cweight')),
+        vPkg = INV.toNum(val('pkg'));
+    var chargeSubtotal = vFreight + vFov + vLabour + vLocal + vDoor + vDocket;
+    var CAP = 100000000;   /* ₹10 crore upper sanity cap on any single field */
+    var verr = null;
+    var nonNeg = { Freight: vFreight, FOV: vFov, Labour: vLabour, 'Local collection': vLocal,
+                   'Door delivery': vDoor, 'Docket charges': vDocket, Discount: vDiscount,
+                   Advance: vAdvance, Received: vReceived };
+    Object.keys(nonNeg).forEach(function (k) {
+      if (verr) return;
+      if (nonNeg[k] < 0) verr = k + ' cannot be negative.';
+      else if (nonNeg[k] > CAP) verr = k + ' is unrealistically large.';
+    });
+    if (!verr && (vSgst < 0 || vSgst > 50)) verr = 'SGST rate must be between 0 and 50%.';
+    if (!verr && (vCgst < 0 || vCgst > 50)) verr = 'CGST rate must be between 0 and 50%.';
+    if (!verr && vDiscount > chargeSubtotal) verr = 'Discount (\u20B9' + vDiscount + ') cannot exceed the charges subtotal (\u20B9' + chargeSubtotal + ').';
+    if (!verr && vAweight < 0) verr = 'Actual weight cannot be negative.';
+    if (!verr && vCweight < 0) verr = 'Charged weight cannot be negative.';
+    if (!verr && (vAweight > 1000000 || vCweight > 1000000)) verr = 'Weight value is unrealistically large.';
+    if (!verr && (vPkg < 0 || vPkg > 100000)) verr = 'Package count is out of range.';
+    /* advance + received cannot exceed the grand total of this shipment */
+    if (!verr) {
+      var taxable = chargeSubtotal - vDiscount;
+      var grand = taxable + (taxable * vSgst / 100) + (taxable * vCgst / 100);
+      if (vAdvance + vReceived > Math.round(grand) + 1) {
+        verr = 'Advance + received (\u20B9' + (vAdvance + vReceived) + ') cannot exceed the grand total (\u20B9' + Math.round(grand) + ').';
+      }
+    }
+    if (verr) {
+      if (msg) { msg.className = 'fst er'; msg.textContent = verr; }
+      return;
+    }
     /* SINGLE SOURCE OF TRUTH: write all shared shipment data to the ORDER.
        Invoice + LR + Accounting + Excel + Reports + both dashboards all
        project from this, so one save updates every connected module. */
@@ -1931,6 +1993,10 @@
     batch.update(fbDB.collection('lorryReceipts').doc(lrDoc._docId), stamp);
     if (lrDoc.invoiceId) batch.update(fbDB.collection('invoices').doc(lrDoc.invoiceId), stamp);
 
+    /* Capture prior payment totals so accounting can post only the DELTA. */
+    var priorRecv = SHIP.computeCharges(SHIP.getOrderSync(lrDoc.orderId) || {}).received +
+                    SHIP.computeCharges(SHIP.getOrderSync(lrDoc.orderId) || {}).advance;
+
     /* Optimistically refresh the local order cache so re-render is instant. */
     var cachedOrder = SHIP.getOrderSync(lrDoc.orderId);
     if (cachedOrder) SHIP.primeOrder(Object.assign({}, cachedOrder, orderUpdate));
@@ -1953,6 +2019,28 @@
       var btn   = $('#lredit-btn-' + docId);
       if (panel) panel.style.display = 'none';
       if (btn) btn.textContent = 'Manage Shipment';
+
+      /* ── AUTOMATIC ACCOUNTING (Manage Shipment edits) ──
+         The order changed. (1) Resync the Sales entry if charges moved
+         (void+repost when unpaid, delta-adjustment when partly paid).
+         (2) If the recorded payment increased, post a Receipt for the delta.
+         Reliable + idempotent; never blocks the save. */
+      if (window.ACC && ACC.autoResyncSales) {
+        var freshOrder = SHIP.getOrderSync(lrDoc.orderId) || Object.assign({}, cachedOrder, orderUpdate);
+        EGC.reliable(function () {
+          return ACC.loadSettings().then(function () {
+            return ACC.autoResyncSales(freshOrder).then(function () {
+              var newRecv = SHIP.computeCharges(freshOrder).received + SHIP.computeCharges(freshOrder).advance;
+              var delta = ACC.round2(newRecv - priorRecv);
+              if (delta > 0) {
+                var mode = (orderUpdate.paymentMode === 'cash') ? 'cash' : 'bank';
+                return ACC.autoPostReceipt(freshOrder, delta, mode);
+              }
+            });
+          });
+        }, { label: 'autopost:resync:' + lrDoc.orderId,
+             persist: { kind: 'audit', args: { action: 'autopost_pending', summary: 'Accounting resync pending for ' + lrDoc.orderId, details: { orderId: lrDoc.orderId } } } });
+      }
     }).catch(function (err) {
       if (msg) { msg.className = 'fst er'; msg.textContent = err.message || 'Could not save shipment changes.'; }
     });
