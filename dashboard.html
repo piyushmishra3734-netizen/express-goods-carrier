@@ -464,23 +464,54 @@ main{padding:108px 24px 80px;max-width:1080px;margin:0 auto;}
         </div>
         <input type="hidden" name="shipmentType" id="qShipmentType" value="">
 
-        <!-- ── COMMERCIAL-ONLY: company lookup ── -->
+        <!-- ── COMMERCIAL-ONLY: Consignor (FROM) + Consignee (TO) ── -->
         <div id="commercialBlock">
+
+          <!-- ════ FROM: CONSIGNOR ════ -->
+          <div class="sf-sub">From — Consignor (Sender Company)</div>
           <div class="sf-fd co-autocomplete">
             <label>Company Name *</label>
-            <input type="text" name="companyName" id="qCompanyName" placeholder="Start typing your company name…" autocomplete="off">
+            <input type="text" name="companyName" id="qCompanyName" placeholder="Start typing the sender company name…" autocomplete="off">
             <div class="co-suggest" id="coSuggest"></div>
             <div class="co-hint" id="coHint"></div>
           </div>
           <div class="sf-row">
-            <div class="sf-fd"><label>GST Number</label><input type="text" name="customerGst" id="qGst" placeholder="e.g. 23AAFCM0088C1ZX"></div>
-            <div class="sf-fd"><label>Registered Address</label><input type="text" name="registeredAddress" id="qRegAddress" placeholder="Registered office address"></div>
+            <div class="sf-fd"><label>Contact Person</label><input type="text" name="contactPerson" id="qContactPerson" placeholder="Person handling this shipment"></div>
+            <div class="sf-fd"><label>Mobile</label><input type="text" name="companyMobile" id="qMobile" placeholder="Contact mobile number"></div>
           </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Email</label><input type="email" name="companyEmail" id="qEmail" placeholder="billing@company.com"></div>
+            <div class="sf-fd"><label>GST Number</label><input type="text" name="customerGst" id="qGst" placeholder="e.g. 23AAFCM0088C1ZX"></div>
+          </div>
+          <div class="sf-fd"><label>Address</label><input type="text" name="registeredAddress" id="qRegAddress" placeholder="Registered / pickup address"></div>
           <div class="sf-row">
             <div class="sf-fd"><label>City</label><input type="text" name="city" id="qCity" placeholder="City"></div>
             <div class="sf-fd"><label>State</label><input type="text" name="state" id="qState" placeholder="State"></div>
           </div>
           <div class="co-verify-note" id="coVerifyNote" style="display:none;">✓ Existing company found — please verify the details above are correct.</div>
+
+          <!-- ════ TO: CONSIGNEE ════ -->
+          <div class="sf-sub" style="margin-top:18px;">To — Consignee (Receiver Company)</div>
+          <div class="sf-fd co-autocomplete">
+            <label>Company Name *</label>
+            <input type="text" name="consigneeName" id="qConsigneeName" placeholder="Start typing the receiver company name…" autocomplete="off">
+            <div class="co-suggest" id="coSuggestTo"></div>
+            <div class="co-hint" id="coHintTo"></div>
+          </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Contact Person</label><input type="text" name="consigneeContactPerson" id="qConsigneeContactPerson" placeholder="Person receiving this shipment"></div>
+            <div class="sf-fd"><label>Mobile</label><input type="text" name="consigneeContact" id="qConsigneeMobile" placeholder="Contact mobile number"></div>
+          </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Email</label><input type="email" name="consigneeEmail" id="qConsigneeEmail" placeholder="receiver@company.com"></div>
+            <div class="sf-fd"><label>GST Number</label><input type="text" name="consigneeGstin" id="qConsigneeGst" placeholder="e.g. 27AAACX1234D1ZP"></div>
+          </div>
+          <div class="sf-fd"><label>Address</label><input type="text" name="consigneeAddress" id="qConsigneeAddress" placeholder="Registered / delivery address"></div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>City</label><input type="text" name="consigneeCity" id="qConsigneeCity" placeholder="City"></div>
+            <div class="sf-fd"><label>State</label><input type="text" name="consigneeState" id="qConsigneeState" placeholder="State"></div>
+          </div>
+          <div class="co-verify-note" id="coVerifyNoteTo" style="display:none;">✓ Existing company found — please verify the details above are correct.</div>
         </div>
 
         <!-- ── PERSONAL-ONLY: sender / receiver ── -->
@@ -821,9 +852,11 @@ DASH.pickShipmentType = function(type){
   if(label) label.textContent = isPersonal ? 'Personal Shipment' : 'Commercial Shipment';
   if(commercial) commercial.style.display = isPersonal ? 'none' : 'block';
   if(personal)   personal.style.display   = isPersonal ? 'block' : 'none';
-  /* Personal: company name not required; Commercial: it is. */
+  /* Personal: company names not required; Commercial: both are. */
   var coName = document.getElementById('qCompanyName');
   if(coName) coName.required = !isPersonal;
+  var ceName = document.getElementById('qConsigneeName');
+  if(ceName) ceName.required = !isPersonal;
   if(step) step.style.display = 'none';
   form.style.display = 'block';
   /* Preload the company directory the first time Commercial is opened. */
@@ -836,25 +869,32 @@ DASH.changeShipmentType = function(){
   if(form) form.style.display = 'none';
 };
 
-/* Company type-ahead — runs entirely off the cached directory. */
-(function(){
-  var input = document.getElementById('qCompanyName');
-  var box   = document.getElementById('coSuggest');
+/* Company type-ahead — runs entirely off the cached directory.
+   Generalized so BOTH the Consignor (FROM) and Consignee (TO) company
+   sections get identical autocomplete + auto-fill behaviour. */
+function wireCompanyAutocomplete(cfg){
+  var input = document.getElementById(cfg.nameId);
+  var box   = document.getElementById(cfg.suggestId);
   if(!input || !box) return;
 
+  function setVal(id,v){ var el=document.getElementById(id); if(el) el.value=v||''; }
+
   function fill(co){
-    var g=document.getElementById('qGst'); if(g) g.value=co.gst||'';
-    var a=document.getElementById('qRegAddress'); if(a) a.value=co.registeredAddress||'';
-    var c=document.getElementById('qCity'); if(c) c.value=co.city||'';
-    var s=document.getElementById('qState'); if(s) s.value=co.state||'';
+    setVal(cfg.gstId,        co.gst);
+    setVal(cfg.addressId,    co.registeredAddress);
+    setVal(cfg.cityId,       co.city);
+    setVal(cfg.stateId,      co.state);
+    setVal(cfg.contactId,    co.contactPerson);
+    setVal(cfg.mobileId,     co.phone);
+    setVal(cfg.emailId,      co.email);
     input.value = co.name;
     input.dataset.coId = co._id || '';
-    var note=document.getElementById('coVerifyNote'); if(note) note.style.display='block';
+    var note=document.getElementById(cfg.verifyId); if(note) note.style.display='block';
     box.classList.remove('on'); box.innerHTML='';
   }
   function clearVerify(){
     input.dataset.coId='';
-    var note=document.getElementById('coVerifyNote'); if(note) note.style.display='none';
+    var note=document.getElementById(cfg.verifyId); if(note) note.style.display='none';
   }
   function render(matches, term){
     var html='';
@@ -875,9 +915,7 @@ DASH.changeShipmentType = function(){
     clearVerify();
     var term=input.value.trim();
     if(!window.CO || term.length<2){ box.classList.remove('on'); return; }
-    CO.load().then(function(){
-      render(CO.search(term), term);
-    });
+    CO.load().then(function(){ render(CO.search(term), term); });
   });
   input.addEventListener('focus', function(){
     var term=input.value.trim();
@@ -889,16 +927,29 @@ DASH.changeShipmentType = function(){
     if(item && box.contains(item)){
       var co=CO.findBySlug(item.dataset.id); if(co) fill(co);
     } else if(add && box.contains(add)){
-      /* "Add new" — keep typed name, let owner-side fields be filled, mark as new */
+      /* "Add new" — keep typed name, let the rest be filled, mark as new */
       clearVerify(); box.classList.remove('on');
-      var hint=document.getElementById('coHint');
-      if(hint) hint.textContent='New company — fill GST / address / city / state below. It will be saved for future shipments.';
-      var g=document.getElementById('qGst'); if(g) g.focus();
+      var hint=document.getElementById(cfg.hintId);
+      if(hint) hint.textContent='New company — fill contact, GST and address below. It will be saved for future shipments.';
+      var g=document.getElementById(cfg.contactId); if(g) g.focus();
     } else if(!box.contains(e.target) && e.target!==input){
       box.classList.remove('on');
     }
   });
-})();
+}
+
+/* FROM — Consignor */
+wireCompanyAutocomplete({
+  nameId:'qCompanyName', suggestId:'coSuggest', hintId:'coHint', verifyId:'coVerifyNote',
+  gstId:'qGst', addressId:'qRegAddress', cityId:'qCity', stateId:'qState',
+  contactId:'qContactPerson', mobileId:'qMobile', emailId:'qEmail'
+});
+/* TO — Consignee */
+wireCompanyAutocomplete({
+  nameId:'qConsigneeName', suggestId:'coSuggestTo', hintId:'coHintTo', verifyId:'coVerifyNoteTo',
+  gstId:'qConsigneeGst', addressId:'qConsigneeAddress', cityId:'qConsigneeCity', stateId:'qConsigneeState',
+  contactId:'qConsigneeContactPerson', mobileId:'qConsigneeMobile', emailId:'qConsigneeEmail'
+});
 </script>
 <script src="dashboard.js"></script>
 </body>

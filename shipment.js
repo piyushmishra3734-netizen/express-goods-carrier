@@ -128,14 +128,22 @@
 
       consignorName:    isPersonal ? (q.senderName || q.customerName || '')
                                    : (q.companyName || q.customerName || ''),
-      consignorAddress: q.pickupAddress || q.registeredAddress || q.pickup || '',
-      consignorContact: isPersonal ? (q.senderMobile || q.customerPhone || '') : (q.customerPhone || ''),
+      consignorAddress: isPersonal ? (q.pickupAddress || q.pickup || '')
+                                   : (q.registeredAddress || q.pickupAddress || q.pickup || ''),
+      consignorContact: isPersonal ? (q.senderMobile || q.customerPhone || '')
+                                   : (q.companyMobile || q.customerPhone || ''),
+      consignorContactPerson: isPersonal ? '' : (q.contactPerson || ''),
+      consignorEmail:   isPersonal ? (q.senderEmail || q.customerEmail || '')
+                                   : (q.companyEmail || q.customerEmail || ''),
       consignorGstin:   isPersonal ? '' : (q.customerGst || ''),
 
       consigneeName:    isPersonal ? (q.receiverName || '') : (q.consigneeName || ''),
-      consigneeAddress: q.deliveryAddress || q.delivery || '',
+      consigneeAddress: isPersonal ? (q.deliveryAddress || q.delivery || '')
+                                   : (q.consigneeAddress || q.deliveryAddress || q.delivery || ''),
       consigneeContact: isPersonal ? (q.receiverMobile || '') : (q.consigneeContact || ''),
-      consigneeGstin:   q.consigneeGstin || '',
+      consigneeContactPerson: isPersonal ? '' : (q.consigneeContactPerson || ''),
+      consigneeEmail:   isPersonal ? (q.receiverEmail || '') : (q.consigneeEmail || ''),
+      consigneeGstin:   isPersonal ? '' : (q.consigneeGstin || ''),
 
       /* route */
       pickup:   q.pickup || '',
@@ -179,6 +187,7 @@
       specialInstructions: q.specialInstructions || q.notes || '',
       insuranceDetails:    '',
       remarks:             '',
+      ewayBill:            '',
       gstPayableBy:        isPersonal ? 'Consignor' : 'Consignee',
 
       /* free-form pricing slot kept open for future tiered pricing */
@@ -274,11 +283,16 @@
       consignorName:    pick(order, d, 'consignorName'),
       consignorAddress: pick(order, d, 'consignorAddress'),
       consignorContact: pick(order, d, 'consignorContact'),
+      consignorContactPerson: pick(order, d, 'consignorContactPerson'),
+      consignorEmail:   pick(order, d, 'consignorEmail'),
       consignorGstin:   pick(order, d, 'consignorGstin'),
       consigneeName:    pick(order, d, 'consigneeName'),
       consigneeAddress: pick(order, d, 'consigneeAddress'),
       consigneeContact: pick(order, d, 'consigneeContact'),
+      consigneeContactPerson: pick(order, d, 'consigneeContactPerson'),
+      consigneeEmail:   pick(order, d, 'consigneeEmail'),
       consigneeGstin:   pick(order, d, 'consigneeGstin'),
+      ewayBill:         pick(order, d, 'ewayBill'),
       fromLocation:     order.pickup   || d.fromLocation || '',
       toLocation:       order.delivery || d.toLocation   || '',
       materialDescription: order.materialType || d.materialDescription || '',
@@ -329,12 +343,15 @@
       companyName:   o.companyName || '',
       customerGst:   o.customerGst || '',
       consignor:     o.consignorName || '',
+      consignorGst:  o.consignorGstin || '',
       consignee:     o.consigneeName || '',
+      consigneeGst:  o.consigneeGstin || '',
       from:          o.pickup || '',
       to:            o.delivery || '',
       material:      o.materialType || '',
       chargedWeight: o.chargedWeight || '',
       vehicleNumber: o.vehicleNumber || '',
+      ewayBill:      o.ewayBill || '',
       freight:         c.lines.freight,
       fov:             c.lines.fov,
       labour:          c.lines.labour,
@@ -357,10 +374,12 @@
   /* Canonical list of editable shared fields — used by the unified
      "Manage Shipment" screen so the editor and the schema never drift. */
   window.SHIP.EDITABLE_FIELDS = [
-    'consignorName', 'consignorAddress', 'consignorContact', 'consignorGstin',
-    'consigneeName', 'consigneeAddress', 'consigneeContact', 'consigneeGstin',
+    'consignorName', 'consignorAddress', 'consignorContact', 'consignorContactPerson',
+    'consignorEmail', 'consignorGstin',
+    'consigneeName', 'consigneeAddress', 'consigneeContact', 'consigneeContactPerson',
+    'consigneeEmail', 'consigneeGstin',
     'vehicleType', 'vehicleNumber', 'driverName', 'driverMobile',
-    'transportMode', 'dispatchMode',
+    'transportMode', 'dispatchMode', 'ewayBill',
     'materialType', 'packages', 'packingMethod', 'actualWeight', 'chargedWeight',
     'freight', 'fov', 'labour', 'localCollection', 'doorDelivery', 'docketCharges',
     'haltingCharges', 'extraCharges', 'discount', 'sgstRate', 'cgstRate',

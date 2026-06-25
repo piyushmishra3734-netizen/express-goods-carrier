@@ -700,14 +700,27 @@
           return;
         }
       } else {
+        /* ── Consignor (FROM) ── */
         data.companyName       = fv('companyName');
+        data.contactPerson     = fv('contactPerson');
+        data.companyMobile     = fv('companyMobile');
+        data.companyEmail      = fv('companyEmail');
         data.customerGst       = fv('customerGst');
         data.registeredAddress = fv('registeredAddress');
         data.city              = fv('city');
         data.state             = fv('state');
+        /* ── Consignee (TO) ── */
+        data.consigneeName          = fv('consigneeName');
+        data.consigneeContactPerson = fv('consigneeContactPerson');
+        data.consigneeContact       = fv('consigneeContact');
+        data.consigneeEmail         = fv('consigneeEmail');
+        data.consigneeGstin         = fv('consigneeGstin');
+        data.consigneeAddress       = fv('consigneeAddress');
+        data.consigneeCity          = fv('consigneeCity');
+        data.consigneeState         = fv('consigneeState');
         data.specialInstructions = data.notes;
-        if (!data.companyName) {
-          if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Please enter your company name.'; }
+        if (!data.companyName || !data.consigneeName) {
+          if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Please enter both the sender (consignor) and receiver (consignee) company names.'; }
           return;
         }
       }
@@ -715,16 +728,30 @@
 
       if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
 
-      /* For commercial shipments, save/refresh the company directory entry
-         so it auto-fills next time (covers both existing-verify and add-new). */
+      /* For commercial shipments, save/refresh BOTH companies in the directory
+         (consignor + consignee) so each auto-fills next time. Non-blocking. */
       var coPromise = Promise.resolve();
-      if (!isPersonal && window.CO && data.companyName) {
-        coPromise = window.CO.save({
-          name: data.companyName, gst: data.customerGst,
-          registeredAddress: data.registeredAddress, city: data.city, state: data.state,
-          contactPerson: currentUser.displayName || '', email: currentUser.email,
-          phone: currentUser.phoneNumber || ''
-        }).catch(function () { /* non-blocking: quote must still submit */ });
+      if (!isPersonal && window.CO) {
+        var saves = [];
+        if (data.companyName) {
+          saves.push(window.CO.save({
+            name: data.companyName, gst: data.customerGst,
+            registeredAddress: data.registeredAddress, city: data.city, state: data.state,
+            contactPerson: data.contactPerson || currentUser.displayName || '',
+            email: data.companyEmail || currentUser.email,
+            phone: data.companyMobile || currentUser.phoneNumber || ''
+          }).catch(function () {}));
+        }
+        if (data.consigneeName) {
+          saves.push(window.CO.save({
+            name: data.consigneeName, gst: data.consigneeGstin,
+            registeredAddress: data.consigneeAddress, city: data.consigneeCity, state: data.consigneeState,
+            contactPerson: data.consigneeContactPerson || '',
+            email: data.consigneeEmail || '',
+            phone: data.consigneeContact || ''
+          }).catch(function () {}));
+        }
+        coPromise = Promise.all(saves).catch(function () {});
       }
 
       coPromise.then(function () {

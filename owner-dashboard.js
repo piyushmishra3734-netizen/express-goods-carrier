@@ -146,7 +146,10 @@
         '</div>' +
         '<div class="ocard-grid">' +
           '<div class="ocard-field"><span>Customer</span><strong>' + EGC.esc(q.customerName) + '</strong></div>' +
-          '<div class="ocard-field"><span>Company</span><strong>' + EGC.esc(q.companyName || '—') + '</strong></div>' +
+          (q.shipmentType === 'personal'
+            ? '<div class="ocard-field"><span>Receiver</span><strong>' + EGC.esc(q.receiverName || '—') + '</strong></div>'
+            : '<div class="ocard-field"><span>Consignor</span><strong>' + EGC.esc(q.companyName || '—') + '</strong></div>' +
+              '<div class="ocard-field"><span>Consignee</span><strong>' + EGC.esc(q.consigneeName || '—') + '</strong></div>') +
           '<div class="ocard-field"><span>Weight</span><strong>' + EGC.esc(q.weight) + ' kg</strong></div>' +
           '<div class="ocard-field"><span>Packages</span><strong>' + EGC.esc(q.packages) + '</strong></div>' +
           '<div class="ocard-field"><span>Material</span><strong>' + EGC.esc(q.materialType) + '</strong></div>' +
@@ -585,7 +588,10 @@
         '</div>' +
         '<div class="ocard-grid">' +
           '<div class="ocard-field"><span>Customer</span><strong>' + EGC.esc(o.customerName) + '</strong></div>' +
-          '<div class="ocard-field"><span>Company</span><strong>' + EGC.esc(o.companyName || '—') + '</strong></div>' +
+          (o.shipmentType === 'personal'
+            ? '<div class="ocard-field"><span>Receiver</span><strong>' + EGC.esc(o.consigneeName || '—') + '</strong></div>'
+            : '<div class="ocard-field"><span>Consignor</span><strong>' + EGC.esc(o.consignorName || o.companyName || '—') + '</strong></div>' +
+              '<div class="ocard-field"><span>Consignee</span><strong>' + EGC.esc(o.consigneeName || '—') + '</strong></div>') +
           '<div class="ocard-field"><span>Weight</span><strong>' + EGC.esc(o.weight) + ' kg</strong></div>' +
           '<div class="ocard-field"><span>Packages</span><strong>' + EGC.esc(o.packages) + '</strong></div>' +
           priceRow +
@@ -1568,6 +1574,26 @@
         '<div class="lr-edit-panel" id="lredit-' + id + '" style="display:none;">' +
           '<div class="lr-edit-title">Manage Shipment \u2014 single source of truth for ' + EGC.esc(lr.orderId || '') + '</div>' +
 
+          '<div class="ms-section">Consignor (From)</div>' +
+          '<div class="lr-edit-grid">' +
+            '<label>Company / Name<input type="text" id="lr-cnorname-' + id + '" value="' + EGC.esc(lr.consignorName || '') + '"></label>' +
+            '<label>Contact Person<input type="text" id="lr-cnorcp-' + id + '" value="' + EGC.esc(lr.consignorContactPerson || '') + '"></label>' +
+            '<label>Mobile<input type="text" id="lr-cnorcontact-' + id + '" value="' + EGC.esc(lr.consignorContact || '') + '"></label>' +
+            '<label>Email<input type="text" id="lr-cnoremail-' + id + '" value="' + EGC.esc(lr.consignorEmail || '') + '"></label>' +
+            '<label>GSTIN<input type="text" id="lr-cnorgst-' + id + '" value="' + EGC.esc(lr.consignorGstin || '') + '"></label>' +
+            '<label class="lr-edit-wide">Address<input type="text" id="lr-cnoraddr-' + id + '" value="' + EGC.esc(lr.consignorAddress || '') + '"></label>' +
+          '</div>' +
+
+          '<div class="ms-section">Consignee (To)</div>' +
+          '<div class="lr-edit-grid">' +
+            '<label>Company / Name<input type="text" id="lr-cneename-' + id + '" value="' + EGC.esc(lr.consigneeName || '') + '"></label>' +
+            '<label>Contact Person<input type="text" id="lr-cneecp-' + id + '" value="' + EGC.esc(lr.consigneeContactPerson || '') + '"></label>' +
+            '<label>Mobile<input type="text" id="lr-cneecontact-' + id + '" value="' + EGC.esc(lr.consigneeContact || '') + '"></label>' +
+            '<label>Email<input type="text" id="lr-cneeemail-' + id + '" value="' + EGC.esc(lr.consigneeEmail || '') + '"></label>' +
+            '<label>GSTIN<input type="text" id="lr-cneegst-' + id + '" value="' + EGC.esc(lr.consigneeGstin || '') + '"></label>' +
+            '<label class="lr-edit-wide">Address<input type="text" id="lr-cneeaddr-' + id + '" value="' + EGC.esc(lr.consigneeAddress || '') + '"></label>' +
+          '</div>' +
+
           '<div class="ms-section">Transport</div>' +
           '<div class="lr-edit-grid">' +
             '<label>Vehicle Number<input type="text" id="lr-vehicle-' + id + '" value="' + EGC.esc(lr.vehicleNumber || '') + '" placeholder="e.g. RJ-20GB-4602"></label>' +
@@ -1576,6 +1602,7 @@
             '<label>Driver Mobile<input type="text" id="lr-drivermob-' + id + '" value="' + EGC.esc(lr.driverMobile || '') + '"></label>' +
             '<label>Transport Mode<input type="text" id="lr-tmode-' + id + '" value="' + EGC.esc(lr.transportMode || 'Road') + '"></label>' +
             '<label>Dispatch Mode<input type="text" id="lr-dispatch-' + id + '" value="' + EGC.esc(lr.dispatchMode || 'Door') + '"></label>' +
+            '<label>E-Way Bill Number (optional)<input type="text" id="lr-eway-' + id + '" value="' + EGC.esc(lr.ewayBill || '') + '" placeholder="Shown on LR only if provided"></label>' +
           '</div>' +
 
           '<div class="ms-section">Cargo</div>' +
@@ -1695,6 +1722,19 @@
        Invoice + LR + Accounting + Excel + Reports + both dashboards all
        project from this, so one save updates every connected module. */
     var orderUpdate = {
+      /* parties (consignor / consignee) */
+      consignorName:          val('cnorname').trim(),
+      consignorContactPerson: val('cnorcp').trim(),
+      consignorContact:       val('cnorcontact').trim(),
+      consignorEmail:         val('cnoremail').trim(),
+      consignorGstin:         val('cnorgst').trim(),
+      consignorAddress:       val('cnoraddr').trim(),
+      consigneeName:          val('cneename').trim(),
+      consigneeContactPerson: val('cneecp').trim(),
+      consigneeContact:       val('cneecontact').trim(),
+      consigneeEmail:         val('cneeemail').trim(),
+      consigneeGstin:         val('cneegst').trim(),
+      consigneeAddress:       val('cneeaddr').trim(),
       /* transport */
       vehicleNumber:       val('vehicle').trim(),
       vehicleType:         val('vtype').trim(),
@@ -1702,6 +1742,7 @@
       driverMobile:        val('drivermob').trim(),
       transportMode:       val('tmode').trim() || 'Road',
       dispatchMode:        val('dispatch').trim() || 'Door',
+      ewayBill:            val('eway').trim(),
       /* cargo */
       actualWeight:        val('aweight').trim(),
       chargedWeight:       val('cweight').trim(),

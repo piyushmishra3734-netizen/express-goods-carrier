@@ -146,18 +146,23 @@
       shipmentType:  shipmentType,                 /* personal | commercial */
 
       /* ── CONSIGNOR (From) ── */
-      consignorName:    isPersonal
-                          ? (quote.senderName || order.customerName || '')
-                          : (order.companyName || quote.companyName || order.customerName || ''),
-      consignorAddress: quote.pickupAddress || order.pickup || quote.pickup || '',
-      consignorContact: isPersonal ? (quote.senderMobile || quote.customerPhone || '') : (quote.customerPhone || order.customerPhone || ''),
-      consignorGstin:   isPersonal ? '' : (quote.customerGst || order.customerGst || ''),
+      consignorName:    order.consignorName ||
+                          (isPersonal
+                            ? (quote.senderName || order.customerName || '')
+                            : (order.companyName || quote.companyName || order.customerName || '')),
+      consignorAddress: order.consignorAddress || quote.registeredAddress || quote.pickupAddress || order.pickup || quote.pickup || '',
+      consignorContact: order.consignorContact || (isPersonal ? (quote.senderMobile || quote.customerPhone || '') : (quote.companyMobile || quote.customerPhone || order.customerPhone || '')),
+      consignorContactPerson: order.consignorContactPerson || (isPersonal ? '' : (quote.contactPerson || '')),
+      consignorEmail:   order.consignorEmail || (isPersonal ? (quote.senderEmail || '') : (quote.companyEmail || order.customerEmail || '')),
+      consignorGstin:   order.consignorGstin || (isPersonal ? '' : (quote.customerGst || order.customerGst || '')),
 
       /* ── CONSIGNEE (To) ── */
-      consigneeName:    isPersonal ? (quote.receiverName || '') : (quote.consigneeName || ''),
-      consigneeAddress: quote.deliveryAddress || order.delivery || quote.delivery || '',
-      consigneeContact: isPersonal ? (quote.receiverMobile || '') : (quote.consigneeContact || ''),
-      consigneeGstin:   quote.consigneeGstin || '',
+      consigneeName:    order.consigneeName || (isPersonal ? (quote.receiverName || '') : (quote.consigneeName || '')),
+      consigneeAddress: order.consigneeAddress || quote.consigneeAddress || quote.deliveryAddress || order.delivery || quote.delivery || '',
+      consigneeContact: order.consigneeContact || (isPersonal ? (quote.receiverMobile || '') : (quote.consigneeContact || '')),
+      consigneeContactPerson: order.consigneeContactPerson || (isPersonal ? '' : (quote.consigneeContactPerson || '')),
+      consigneeEmail:   order.consigneeEmail || (isPersonal ? (quote.receiverEmail || '') : (quote.consigneeEmail || '')),
+      consigneeGstin:   order.consigneeGstin || quote.consigneeGstin || '',
 
       /* ── ROUTE ── */
       fromLocation:  order.pickup   || quote.pickup   || '',
@@ -192,6 +197,7 @@
       specialInstructions: quote.specialInstructions || quote.notes || order.notes || '',
       insuranceDetails:    '',
       remarks:             '',
+      ewayBill:            order.ewayBill || '',
       gstPayableBy:        isPersonal ? 'Consignor' : 'Consignee',
 
       /* ── PAYMENT (mirrors invoice; accounting-ready) ── */
@@ -280,6 +286,7 @@
         '<div class="cc-box">' +
           '<div class="cc-h"><span class="dot">\u25CF</span> CONSIGNOR <span class="cc-sub">(From)</span></div>' +
           '<div class="cc-line"><span class="cc-k">Name</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consignorName || '\u2014') + '</span></div>' +
+          (lr.consignorContactPerson ? '<div class="cc-line"><span class="cc-k">Contact Person</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consignorContactPerson) + '</span></div>' : '') +
           '<div class="cc-line"><span class="cc-k">Address</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consignorAddress || '\u2014') + '</span></div>' +
           '<div class="cc-line"><span class="cc-k">Contact</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consignorContact || '\u2014') + '</span></div>' +
           (isPersonal ? '' :
@@ -289,6 +296,7 @@
         '<div class="cc-box">' +
           '<div class="cc-h"><span class="dot">\u25CF</span> CONSIGNEE <span class="cc-sub">(To)</span></div>' +
           '<div class="cc-line"><span class="cc-k">Name</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consigneeName || '\u2014') + '</span></div>' +
+          (lr.consigneeContactPerson ? '<div class="cc-line"><span class="cc-k">Contact Person</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consigneeContactPerson) + '</span></div>' : '') +
           '<div class="cc-line"><span class="cc-k">Address</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consigneeAddress || '\u2014') + '</span></div>' +
           '<div class="cc-line"><span class="cc-k">Contact</span><span class="cc-c">:</span><span class="cc-v">' + esc(lr.consigneeContact || '\u2014') + '</span></div>' +
           (isPersonal ? '' :
@@ -305,6 +313,7 @@
           '<div class="mblk"><span class="mk">Driver Name</span><span class="mv">' + esc(lr.driverName || '\u2014') + '</span></div>' +
           '<div class="mblk"><span class="mk">Driver Contact</span><span class="mv">' + esc(lr.driverMobile || '\u2014') + '</span></div>' +
           '<div class="mblk"><span class="mk">Transport Mode</span><span class="mv b">' + esc(lr.transportMode || 'Road') + '</span></div>' +
+          (lr.ewayBill ? '<div class="mblk"><span class="mk">E-Way Bill</span><span class="mv hot">' + esc(lr.ewayBill) + '</span></div>' : '') +
         '</div>' +
       '</div>' +
 
