@@ -420,13 +420,40 @@
           '<p>Bank Name : <b>' + esc(config.bankName) + '</b></p>' +
           '<p>Account Number : <b>' + esc(config.accountNumber) + '</b></p>' +
           '<p>IFSC Code : <b>' + esc(config.ifsc) + '</b></p>' +
-          '<div class="sigbox"><div class="sig-for">For <b>ORBIT LOGISTICS</b></div>' + sigBlock +
-            '<div class="sig-name">' + esc(config.signatoryName || 'Authorized Signatory') + '</div>' +
+          '<div class="sigrow">' +
+            '<div class="sigbox"><div class="sig-for">For <b>ORBIT LOGISTICS</b></div>' + sigBlock +
+              '<div class="sig-name">' + esc(config.signatoryName || 'Authorized Signatory') + '</div>' +
+            '</div>' +
+            '<div class="sealbox"><div class="seal-ring">COMPANY<br>SEAL / STAMP</div></div>' +
           '</div>' +
         '</div>' +
       '</div>' +
 
-      /* ── TRUST ROW (identical to invoice) ── */
+      /* ── DELIVERY ACKNOWLEDGEMENT — filled & signed by the receiver on
+         delivery. Left: receiver name / signature / seal. Right: date+time.
+         Blank fields by design so it can be completed by hand after print. */
+      '<div class="ackband">' +
+        '<div class="ack-title">DELIVERY ACKNOWLEDGEMENT</div>' +
+        '<div class="ack-grid">' +
+          '<div class="ack-cell ack-wide">' +
+            '<div class="ack-lbl">Receiver Name</div>' +
+            '<div class="ack-fill"></div>' +
+          '</div>' +
+          '<div class="ack-cell ack-wide">' +
+            '<div class="ack-lbl">Receiver Signature</div>' +
+            '<div class="ack-fill"></div>' +
+          '</div>' +
+          '<div class="ack-cell ack-seal">' +
+            '<div class="ack-lbl">Company Seal / Stamp</div>' +
+            '<div class="ack-fill ack-fill-seal"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ack-grid ack-grid-2">' +
+          '<div class="ack-cell"><div class="ack-lbl">Date</div><div class="ack-fill ack-fill-sm"></div></div>' +
+          '<div class="ack-cell"><div class="ack-lbl">Time</div><div class="ack-fill ack-fill-sm"></div></div>' +
+          '<div class="ack-cell ack-note">Goods received in good condition and full quantity as described above.</div>' +
+        '</div>' +
+      '</div>' +
       '<div class="trust">' +
         '<div class="ti"><svg class="tic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>SAFE &amp; SECURE<br>TRANSPORT</span></div>' +
         '<div class="ti"><svg class="tic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg><span>ON TIME<br>EVERY TIME</span></div>' +
@@ -522,6 +549,24 @@
 '.sig-img{height:42px;width:auto;display:block;margin:0 auto;}' +
 '.sig-line{height:34px;border-bottom:1px solid #999;margin:0 16px;}' +
 '.sig-name{font-size:9px;color:#555;margin-top:2px;}' +
+/* ── SIGNATURE ROW + COMPANY SEAL (item 1) ── */
+'.sigrow{display:flex;gap:8px;align-items:flex-end;margin-top:8px;}' +
+'.sigrow .sigbox{flex:1;margin-top:0;}' +
+'.sealbox{flex:none;width:78px;text-align:center;}' +
+'.seal-ring{width:62px;height:62px;margin:0 auto;border:1.5px dashed #c4a35a;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:700;color:#b78b3a;letter-spacing:.3px;line-height:1.3;text-align:center;}' +
+/* ── DELIVERY ACKNOWLEDGEMENT BAND (item 2) ── */
+'.ackband{border:1px solid #d8dde3;border-radius:6px;padding:8px 10px;margin-bottom:10px;}' +
+'.ack-title{font-size:9.5px;font-weight:800;letter-spacing:1px;color:#f26522;margin-bottom:7px;text-transform:uppercase;}' +
+'.ack-grid{display:flex;gap:10px;}' +
+'.ack-grid-2{margin-top:9px;align-items:flex-end;}' +
+'.ack-cell{flex:1;}' +
+'.ack-wide{flex:2;}' +
+'.ack-seal{flex:none;width:96px;}' +
+'.ack-lbl{font-size:8px;color:#666;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}' +
+'.ack-fill{height:26px;border-bottom:1px solid #9aa3ad;}' +
+'.ack-fill-sm{height:20px;}' +
+'.ack-fill-seal{height:44px;border:1px dashed #c9ced4;border-radius:4px;}' +
+'.ack-note{font-size:8px;color:#777;line-height:1.4;align-self:center;}' +
 /* ── TRUST ROW ── */
 '.trust{display:flex;justify-content:space-around;border-top:1px solid #e2e6ea;padding-top:10px;margin-top:4px;}' +
 '.ti{display:flex;gap:7px;align-items:center;font-size:9px;font-weight:700;color:#444;}' +
