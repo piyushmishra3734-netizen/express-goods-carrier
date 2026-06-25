@@ -111,14 +111,110 @@
   window.EGC.nextInvoiceId = function () { return nextSequentialId('invoices', 'INV'); };
 
   /* NOTIFICATION HELPERS */
-  window.EGC.createNotification = function (customerUid, type, message, meta) {
-    /* Every notification automatically produces an audit trail entry too,
-       so "Notification sent" is always covered without scattering calls. */
-    window.EGC.logAudit('notification_sent', message, {
-      targetType: 'notification',
-      targetId:   customerUid,
-      newValue:   type
-    });
+  /* ============================================================
+     RELIABLE FOLLOW-UP (B3)
+     Business-critical records (quote/order/invoice/LR) are written
+     atomically in a transaction. Audit logs + notifications are
+     follow-ups: they must NOT be inside that transaction (to avoid
+     contention) but must also never silently disappear.
+
+     EGC.reliable(fn, label) runs a promise-returning side effect with
+     exponential-backoff retries. If it still fails, the intent is
+     persisted to localStorage and replayed on the next page load, so a
+     transient outage can't lose an audit entry or a customer notice.
+     ============================================================ */
+  var RELIABLE_KEY = 'egc_reliable_queue_v1';
+  var RELIABLE_MAX_RETRIES = 4;     /* ~ up to 0.5s,1s,2s,4s backoff */
+
+  function loadQueue() {
+    try { return JSON.parse(localStorage.getItem(RELIABLE_KEY) || '[]'); }
+    catch (e) { return []; }
+  }
+  function saveQueue(q) {
+    try { localStorage.setItem(RELIABLE_KEY, JSON.stringify(q.slice(-200))); } catch (e) {}
+  }
+  function enqueueFailure(kind, args) {
+    var q = loadQueue();
+    q.push({ kind: kind, args: args, ts: Date.now() });
+    saveQueue(q);
+  }
+
+  /* Replay a persisted intent. Only serializable intents are queued, so
+     we reconstruct the call from {kind,args} rather than a closure. */
+  function replayIntent(item) {
+    if (item.kind === 'notification') {
+      var a = item.args;
+      return rawCreateNotification(a.customerUid, a.type, a.message, a.meta);
+    }
+    if (item.kind === 'audit') {
+      var b = item.args;
+      return window.EGC.logAudit(b.action, b.summary, b.details);
+    }
+    if (item.kind === 'activity') {
+      var c = item.args;
+      return window.EGC.logActivity(c.customerUid, c.type, c.message, c.meta);
+    }
+    return Promise.resolve();
+  }
+
+  window.EGC.reliable = function (fn, opts) {
+    opts = opts || {};
+    var attempt = 0;
+    function run() {
+      return Promise.resolve().then(fn).catch(function (err) {
+        attempt++;
+        if (attempt <= RELIABLE_MAX_RETRIES) {
+          var delay = 250 * Math.pow(2, attempt);   /* 0.5s, 1s, 2s, 4s */
+          return new Promise(function (res) { setTimeout(res, delay); }).then(run);
+        }
+        console.error('[EGC] reliable op failed after retries:', opts.label || '', err && err.message);
+        if (opts.persist) enqueueFailure(opts.persist.kind, opts.persist.args);
+        /* Swallow — a failed follow-up must never break the main flow. */
+        return null;
+      });
+    }
+    return run();
+  };
+
+  /* Drain any persisted failures from a previous session. Call once at
+     startup (safe to call when signed out — writes simply no-op on rules). */
+  window.EGC.flushReliableQueue = function () {
+    var q = loadQueue();
+    if (!q.length) return Promise.resolve();
+    saveQueue([]);   /* take ownership; failures re-enqueue themselves */
+    return q.reduce(function (p, item) {
+      return p.then(function () {
+        return window.EGC.reliable(function () { return replayIntent(item); },
+          { label: 'replay:' + item.kind, persist: { kind: item.kind, args: item.args } });
+      });
+    }, Promise.resolve());
+  };
+
+  /* Convenience wrappers that make the common follow-ups reliable +
+     durable in one call, used by the approval / status / payment flows. */
+  window.EGC.reliableNotify = function (customerUid, type, message, meta) {
+    return window.EGC.reliable(
+      function () { return rawCreateNotification(customerUid, type, message, meta); },
+      { label: 'notify:' + type, persist: { kind: 'notification', args: { customerUid: customerUid, type: type, message: message, meta: meta || {} } } }
+    );
+  };
+  window.EGC.reliableAudit = function (action, summary, details) {
+    return window.EGC.reliable(
+      function () { return window.EGC.logAudit(action, summary, details); },
+      { label: 'audit:' + action, persist: { kind: 'audit', args: { action: action, summary: summary, details: details || {} } } }
+    );
+  };
+  window.EGC.reliableActivity = function (customerUid, type, message, meta) {
+    return window.EGC.reliable(
+      function () { return window.EGC.logActivity(customerUid, type, message, meta); },
+      { label: 'activity:' + type, persist: { kind: 'activity', args: { customerUid: customerUid, type: type, message: message, meta: meta || {} } } }
+    );
+  };
+
+  /* Internal raw notification writer (no auto-audit) so replay/reliable
+     paths don't double-log. The public createNotification keeps its
+     existing auto-audit behaviour for backward compatibility. */
+  function rawCreateNotification(customerUid, type, message, meta) {
     return fbDB.collection('notifications').add({
       customerUid: customerUid,
       type:        type,
@@ -127,6 +223,17 @@
       read:        false,
       createdAt:   firebase.firestore.FieldValue.serverTimestamp()
     });
+  }
+
+  window.EGC.createNotification = function (customerUid, type, message, meta) {
+    /* Every notification automatically produces an audit trail entry too,
+       so "Notification sent" is always covered without scattering calls. */
+    window.EGC.logAudit('notification_sent', message, {
+      targetType: 'notification',
+      targetId:   customerUid,
+      newValue:   type
+    });
+    return rawCreateNotification(customerUid, type, message, meta);
   };
 
   /* ============================================================

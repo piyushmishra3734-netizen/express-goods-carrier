@@ -75,6 +75,9 @@
 
     currentUser = user;
 
+    /* B3: replay any audit/notification follow-ups that failed previously. */
+    if (EGC.flushReliableQueue) EGC.flushReliableQueue();
+
     if (guard) guard.classList.add('fade-out');
     if (main)  { main.style.display = 'block'; requestAnimationFrame(function () { main.classList.add('visible'); }); }
     setTimeout(function () { if (guard) guard.style.display = 'none'; }, 380);

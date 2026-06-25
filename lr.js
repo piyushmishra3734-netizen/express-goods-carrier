@@ -76,24 +76,45 @@
      Accounting-ready: every component is a flat numeric field.
   ---------------------------------------------------------- */
   window.LR.computeTotals = function (lr) {
+    /* SINGLE TOTALS ENGINE: delegate to SHIP.computeCharges so the LR and
+       the invoice ALWAYS total identically from the same order. Previously
+       this had its own math that omitted halting/extra charges and ignored
+       discount, causing the printed LR grand total to disagree with the
+       invoice for any discounted or multi-charge shipment. */
+    if (window.SHIP && window.SHIP.computeCharges) {
+      var c = window.SHIP.computeCharges(lr);
+      return {
+        subTotal:   c.subTotal,
+        discount:   c.discount,
+        sgst:       c.sgst,
+        cgst:       c.cgst,
+        grandTotal: c.grandTotal
+      };
+    }
+    /* Fallback (SHIP not loaded) — mirror the canonical formula exactly. */
     var freight        = toNum(lr.freight);
     var fov            = toNum(lr.fov);
     var labour         = toNum(lr.labour);
     var localCollection= toNum(lr.localCollection);
     var doorDelivery   = toNum(lr.doorDelivery);
     var docketCharges  = toNum(lr.docketCharges);
+    var halting        = toNum(lr.haltingCharges);
+    var extra          = toNum(lr.extraCharges);
+    var discount       = toNum(lr.discount);
 
-    var subTotal = freight + fov + labour + localCollection + doorDelivery + docketCharges;
+    var subTotal = freight + fov + labour + localCollection + doorDelivery + docketCharges + halting + extra;
+    var taxable  = subTotal - discount;
 
     var sgstRate = toNum(lr.sgstRate);
     var cgstRate = toNum(lr.cgstRate);
-    var sgst = subTotal * sgstRate / 100;
-    var cgst = subTotal * cgstRate / 100;
+    var sgst = taxable * sgstRate / 100;
+    var cgst = taxable * cgstRate / 100;
 
-    var grandTotal = subTotal + sgst + cgst;
+    var grandTotal = taxable + sgst + cgst;
 
     return {
       subTotal:   subTotal,
+      discount:   discount,
       sgst:       sgst,
       cgst:       cgst,
       grandTotal: grandTotal
@@ -342,7 +363,10 @@
           chargeRow('LOCAL COLLECTION', lr.localCollection) +
           chargeRow('DOOR DELIVERY', lr.doorDelivery) +
           chargeRow('DOCKET CHARGES', lr.docketCharges) +
+          (toNum(lr.haltingCharges) ? chargeRow('HALTING CHARGES', lr.haltingCharges) : '') +
+          (toNum(lr.extraCharges) ? chargeRow('EXTRA CHARGES', lr.extraCharges) : '') +
           '<div class="fc-row fc-total"><span class="fc-k">TOTAL</span><span class="fc-v">' + fmtMoney(t.subTotal) + '</span></div>' +
+          (toNum(t.discount) ? '<div class="fc-row"><span class="fc-k">DISCOUNT</span><span class="fc-v">- ' + fmtMoney(t.discount) + '</span></div>' : '') +
           '<div class="fc-row"><span class="fc-k">SGST ' + esc(lr.sgstRate || 0) + '%</span><span class="fc-v">' + fmtMoney(t.sgst) + '</span></div>' +
           '<div class="fc-row"><span class="fc-k">CGST ' + esc(lr.cgstRate || 0) + '%</span><span class="fc-v">' + fmtMoney(t.cgst) + '</span></div>' +
           '<div class="fc-grand"><span>GRAND TOTAL</span><span>' + fmtMoney(t.grandTotal) + '</span></div>' +

@@ -63,6 +63,10 @@
     if (main)  { main.style.display = 'block'; requestAnimationFrame(function () { main.classList.add('visible'); }); }
     setTimeout(function () { if (guard) guard.style.display = 'none'; }, 380);
 
+    /* B3: replay any audit/notification follow-ups that failed in a prior
+       session so the audit trail and customer notices can't silently vanish. */
+    if (EGC.flushReliableQueue) EGC.flushReliableQueue();
+
     loadPendingQuotes();
     loadRevisedQuotes();
     loadOwnerOrders();
@@ -114,8 +118,8 @@
 
     /* Action buttons — only owner actions that make sense at this stage */
     var approveBtn = (isPending || isCustomerAccepted)
-      ? '<button class="btn-ok" type="button" onclick="OWN.approve(\'' + q.quoteId + '\')">' +
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Approve' +
+      ? '<button class="btn-ok" type="button" onclick="OWN.toggleApprove(\'' + q.quoteId + '\')">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Approve &amp; Price' +
         '</button>'
       : '';
 
@@ -169,7 +173,25 @@
           '</button>' +
         '</div>' +
 
-        /* MODIFY PANEL — only shown for pending_review quotes */
+        /* APPROVE & PRICE PANEL — price is REQUIRED before documents are
+           generated. Prevents zero-value invoice/LR being created. */
+        '<div class="modify-panel" id="approve-' + q.quoteId + '">' +
+          '<div class="modify-panel-header" style="color:var(--green,#39d98a);">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="15" height="15"><polyline points="20 6 9 17 4 12"/></svg>' +
+            'Approve &amp; Generate Documents' +
+          '</div>' +
+          '<div class="sf-fd">' +
+            '<label style="font-family:\'IBM Plex Mono\';font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:6px;">Freight Price (\u20B9) \u2014 required</label>' +
+            '<input type="number" min="1" step="1" id="aPrice-' + q.quoteId + '" value="' + EGC.esc(q.revisedPrice || '') + '" placeholder="Enter agreed freight amount">' +
+          '</div>' +
+          '<div class="ocard-notes" style="margin:10px 0 0;color:var(--muted2);font-size:12px;">' +
+            'On approve, an Order, Invoice and Lorry Receipt will be generated automatically with this freight. Additional charges (FOV, labour, GST, etc.) can be added afterwards in Manage Shipment.' +
+          '</div>' +
+          '<div class="ocard-actions" style="margin-top:12px;">' +
+            '<button class="btn-ok btn-sm" type="button" onclick="OWN.approve(\'' + q.quoteId + '\')">Confirm &amp; Generate</button>' +
+            '<button class="btn-ghost btn-sm" type="button" onclick="OWN.toggleApprove(\'' + q.quoteId + '\')">Cancel</button>' +
+          '</div>' +
+        '</div>' +
         '<div class="modify-panel" id="modify-' + q.quoteId + '">' +
           '<div class="modify-panel-header">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
@@ -315,134 +337,218 @@
   --------------------------------------------------------- */
   window.OWN = window.OWN || {};
 
+  window.OWN.toggleApprove = function (qid) {
+    var panel = $('#approve-' + qid);
+    var modifyPanel = $('#modify-' + qid);
+    var rejectPanel = $('#reject-' + qid);
+    if (modifyPanel) modifyPanel.classList.remove('open');
+    if (rejectPanel) rejectPanel.classList.remove('open');
+    if (panel) {
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open')) {
+        var inp = $('#aPrice-' + qid);
+        if (inp) { inp.focus(); inp.select(); }
+      }
+    }
+  };
+
   window.OWN.toggleModify = function (qid) {
     var panel = $('#modify-' + qid);
     var rejectPanel = $('#reject-' + qid);
+    var approvePanel = $('#approve-' + qid);
     if (rejectPanel) rejectPanel.classList.remove('open');
+    if (approvePanel) approvePanel.classList.remove('open');
     if (panel) panel.classList.toggle('open');
   };
 
   window.OWN.toggleReject = function (qid) {
     var panel = $('#reject-' + qid);
     var modifyPanel = $('#modify-' + qid);
+    var approvePanel = $('#approve-' + qid);
     if (modifyPanel) modifyPanel.classList.remove('open');
+    if (approvePanel) approvePanel.classList.remove('open');
     if (panel) panel.classList.toggle('open');
   };
 
   /* ---------------------------------------------------------
-     APPROVE — creates order + notifications + activity log
-     Guard: only allowed if pending_review OR customer_accepted
+     APPROVE — validates a required freight price, then creates
+     order + invoice + LR + notifications + audit. Guarded against
+     double-submit and re-approval so documents are never duplicated
+     and never generated with a zero price.
   --------------------------------------------------------- */
+  var _approving = {};   /* in-flight lock keyed by quoteId */
+
   window.OWN.approve = function (qid) {
     var msg = $('#qmsg-' + qid);
     var q = pendingCache[qid];
     if (!q) { return; }
 
-    /* Safety guard: block approve if status is revised_by_owner */
+    /* Guard A: block double-submit while a prior approval is in flight. */
+    if (_approving[qid]) { return; }
+
+    /* Guard B: only pending_review or customer_accepted can be approved. */
     if (q.status === EGC.QUOTE_STATUS.REVISED) {
       if (msg) { msg.className = 'fst er'; msg.textContent = 'Cannot approve yet — waiting for customer to accept the revision first.'; }
       return;
     }
+    if (q.status === EGC.QUOTE_STATUS.APPROVED) {
+      if (msg) { msg.className = 'fst er'; msg.textContent = 'This quote has already been approved.'; }
+      return;
+    }
+
+    /* Guard C: freight price is REQUIRED — no zero-value documents. */
+    var priceEl = $('#aPrice-' + qid);
+    var freight = INV.toNum(priceEl ? priceEl.value : (q.revisedPrice || 0));
+    if (!(freight > 0)) {
+      if (msg) { msg.className = 'fst er'; msg.textContent = 'Enter a freight price greater than \u20B90 before approving.'; }
+      var apOpen = $('#approve-' + qid);
+      if (apOpen && !apOpen.classList.contains('open')) apOpen.classList.add('open');
+      if (priceEl) priceEl.focus();
+      return;
+    }
+
+    _approving[qid] = true;
+    var confirmBtn = $('#approve-' + qid) ? $('#approve-' + qid).querySelector('.btn-ok') : null;
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Generating\u2026'; }
 
     Promise.all([EGC.nextOrderId(), EGC.nextInvoiceId(), INV.nextLrNumber(), LR.nextDocketNumber()]).then(function (ids) {
+      /* IDs are allocated before the transaction. If the transaction aborts
+         (rare race: quote already approved), the numbers are consumed but
+         unused, leaving a GAP — acceptable and auditable. A DUPLICATE number
+         would not be. We deliberately prefer a gap over a duplicate.
+         (When counter sharding is added later this stays unchanged: the
+         allocator interface is the same; only its internals change.) */
       var orderId   = ids[0];
       var invoiceId = ids[1];
       var lrNumber  = ids[2];
       var docketNo  = ids[3];
 
-      /* ── SINGLE SOURCE OF TRUTH ──────────────────────────
-         Build the canonical ORDER. All shared shipment data lives
-         here. Invoice and LR are stored as THIN document records
-         carrying only their own identity (number + dates); they are
-         projected from the order at render time via SHIP.toInvoiceView
-         / SHIP.toLrView, so editing the order updates every module. */
-      var orderData = SHIP.buildOrder({
-        orderId:   orderId,
-        quoteId:   q.quoteId,
-        invoiceId: invoiceId,
-        lrNumber:  lrNumber,
-        quote:     q,
-        pricing:   { freight: q.revisedPrice }
-      });
-      orderData.status           = EGC.ORDER_STATUS.APPROVED;
-      orderData.invoiceGenerated = true;
-      orderData.lrGenerated      = true;
-
       var now  = new Date();
       var due  = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
 
-      /* Thin INVOICE document — identity only; shared data comes from order. */
-      var invoiceRecord = {
-        invoiceId:     invoiceId,
-        invoiceNumber: invoiceId,
-        orderId:       orderId,
-        quoteId:       q.quoteId,
-        lrNumber:      lrNumber,
-        customerUid:   q.customerUid,
-        invoiceDate:   firebase.firestore.Timestamp.fromDate(now),
-        dueDate:       firebase.firestore.Timestamp.fromDate(due),
-        createdAt:     firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt:     firebase.firestore.FieldValue.serverTimestamp()
-      };
+      /* ── ATOMIC APPROVAL ─────────────────────────────────
+         Re-read the quote INSIDE the transaction (H4) and build the order
+         from that FRESH data — never the cached card — so a concurrent
+         revision/acceptance can't bake stale pricing or cargo into the order.
+         The guard (B2) aborts if the quote was already approved, so no
+         duplicate or orphaned order/invoice/LR can ever be created. */
+      var quoteRef = fbDB.collection('quotes').doc(qid);
+      var createdOrderData = null;   /* captured for post-commit audit/notify */
 
-      /* Thin LR document — identity only; shared data comes from order. */
-      var lrRecord = {
-        lrNumber:     lrNumber,
-        docketNumber: docketNo,
-        orderId:      orderId,
-        quoteId:      q.quoteId,
-        invoiceId:    invoiceId,
-        customerUid:  q.customerUid,
-        lrDate:       firebase.firestore.Timestamp.fromDate(now),
-        createdAt:    firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
-      };
+      return fbDB.runTransaction(function (tx) {
+        return tx.get(quoteRef).then(function (snap) {
+          if (!snap.exists) throw new Error('Quote no longer exists.');
+          var fresh = snap.data();
+          fresh.quoteId = fresh.quoteId || qid;
 
-      var batch = fbDB.batch();
-      batch.set(fbDB.collection('orders').doc(orderId), orderData);
-      batch.set(fbDB.collection('invoices').doc(invoiceId), invoiceRecord);
-      batch.set(fbDB.collection('lorryReceipts').doc(lrNumber), lrRecord);
-      batch.update(fbDB.collection('quotes').doc(qid), {
-        status:    EGC.QUOTE_STATUS.APPROVED,
-        orderId:   orderId,
-        invoiceId: invoiceId,
-        lrNumber:  lrNumber,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
+          if (fresh.status === EGC.QUOTE_STATUS.APPROVED || fresh.orderId) {
+            throw new Error('ALREADY_APPROVED');
+          }
+          if (fresh.status === EGC.QUOTE_STATUS.REVISED) {
+            throw new Error('Cannot approve — waiting for the customer to accept the revision.');
+          }
 
-      return batch.commit().then(function () {
-        /* Notification to customer */
+          /* Build the canonical ORDER from FRESH quote data (SSoT). Invoice
+             and LR are thin identity-only docs that project from the order. */
+          var orderData = SHIP.buildOrder({
+            orderId:   orderId,
+            quoteId:   fresh.quoteId,
+            invoiceId: invoiceId,
+            lrNumber:  lrNumber,
+            quote:     fresh,
+            pricing:   { freight: freight }
+          });
+          orderData.status           = EGC.ORDER_STATUS.APPROVED;
+          orderData.invoiceGenerated = true;
+          orderData.lrGenerated      = true;
+          createdOrderData = orderData;
+
+          var invoiceRecord = {
+            invoiceId:     invoiceId,
+            invoiceNumber: invoiceId,
+            orderId:       orderId,
+            quoteId:       fresh.quoteId,
+            lrNumber:      lrNumber,
+            customerUid:   fresh.customerUid,
+            invoiceDate:   firebase.firestore.Timestamp.fromDate(now),
+            dueDate:       firebase.firestore.Timestamp.fromDate(due),
+            createdAt:     firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt:     firebase.firestore.FieldValue.serverTimestamp()
+          };
+
+          var lrRecord = {
+            lrNumber:     lrNumber,
+            docketNumber: docketNo,
+            orderId:      orderId,
+            quoteId:      fresh.quoteId,
+            invoiceId:    invoiceId,
+            customerUid:  fresh.customerUid,
+            lrDate:       firebase.firestore.Timestamp.fromDate(now),
+            createdAt:    firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
+          };
+
+          tx.set(fbDB.collection('orders').doc(orderId), orderData);
+          tx.set(fbDB.collection('invoices').doc(invoiceId), invoiceRecord);
+          tx.set(fbDB.collection('lorryReceipts').doc(lrNumber), lrRecord);
+          tx.update(quoteRef, {
+            status:    EGC.QUOTE_STATUS.APPROVED,
+            orderId:   orderId,
+            invoiceId: invoiceId,
+            lrNumber:  lrNumber,
+            freight:   freight,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        });
+      }).then(function () {
+        /* Prime the SSoT cache so the just-created order renders instantly. */
+        if (createdOrderData && SHIP.primeOrder) SHIP.primeOrder(createdOrderData);
+        var orderData = createdOrderData || {};
+        var amount = SHIP.computeCharges(orderData).grandTotal;
+
+        /* ── RELIABLE FOLLOW-UP (B3) ──
+           The order/invoice/LR/quote already committed atomically above.
+           These audit + notification writes are durable retried follow-ups:
+           they never block the success result and never silently vanish. */
         var notifMsg = 'Your quote ' + q.quoteId + ' has been approved. Order ' + orderId + ' created with invoice ' + invoiceId + ' and Lorry Receipt ' + lrNumber + '.';
-        var p1 = EGC.createNotification(q.customerUid, 'order_created', notifMsg, { quoteId: q.quoteId, orderId: orderId, invoiceId: invoiceId, lrNumber: lrNumber });
-        /* Activity log entry */
-        var p2 = EGC.logActivity(q.customerUid, 'order_created',
+        EGC.reliableNotify(q.customerUid, 'order_created', notifMsg, { quoteId: q.quoteId, orderId: orderId, invoiceId: invoiceId, lrNumber: lrNumber });
+        EGC.reliableActivity(q.customerUid, 'order_created',
           'Order ' + orderId + ' created for ' + q.pickup + ' \u2192 ' + q.delivery,
           { quoteId: q.quoteId, orderId: orderId });
-        /* Audit trail — quote approved + order created + invoice + LR generated */
-        var p3 = EGC.logAudit('quote_accepted', 'Quote ' + q.quoteId + ' approved by owner.', {
+        EGC.reliableAudit('notification_sent', notifMsg, { targetType: 'notification', targetId: q.customerUid, orderId: orderId, quoteId: q.quoteId, newValue: 'order_created' });
+        EGC.reliableAudit('quote_accepted', 'Quote ' + q.quoteId + ' approved by owner at \u20B9' + freight + ' freight.', {
           targetType: 'quote', targetId: q.quoteId, quoteId: q.quoteId,
           previousValue: q.status, newValue: 'approved'
         });
-        var p4 = EGC.logAudit('order_created', 'Order ' + orderId + ' created from quote ' + q.quoteId + '.', {
+        EGC.reliableAudit('order_created', 'Order ' + orderId + ' created from quote ' + q.quoteId + '.', {
           targetType: 'order', targetId: orderId, orderId: orderId, quoteId: q.quoteId,
           previousValue: null, newValue: orderId
         });
-        var p5 = EGC.logAudit('invoice_generated', 'Invoice ' + invoiceId + ' (' + lrNumber + ') generated for order ' + orderId + '.', {
+        EGC.reliableAudit('invoice_generated', 'Invoice ' + invoiceId + ' (' + lrNumber + ') generated for order ' + orderId + '.', {
           targetType: 'invoice', targetId: invoiceId, orderId: orderId, quoteId: q.quoteId,
-          previousValue: null, newValue: { invoiceId: invoiceId, lrNumber: lrNumber, amount: SHIP.computeCharges(orderData).grandTotal }
+          previousValue: null, newValue: { invoiceId: invoiceId, lrNumber: lrNumber, amount: amount }
         });
-        var p6 = EGC.logAudit('lr_generated', 'Lorry Receipt ' + lrNumber + ' generated for order ' + orderId + '.', {
+        EGC.reliableAudit('lr_generated', 'Lorry Receipt ' + lrNumber + ' generated for order ' + orderId + '.', {
           targetType: 'lorryReceipt', targetId: lrNumber, orderId: orderId, quoteId: q.quoteId,
           previousValue: null, newValue: { lrNumber: lrNumber, docketNumber: docketNo }
         });
-        return Promise.all([p1, p2, p3, p4, p5, p6]).then(function () { return orderId; });
+        return orderId;
       });
     }).then(function (orderId) {
-      if (msg) { msg.className = 'fst ok'; msg.textContent = '\u2713 Approved \u2014 Order ' + orderId + ' created with invoice.'; }
+      if (msg) { msg.className = 'fst ok'; msg.textContent = '\u2713 Approved \u2014 Order ' + orderId + ' created with invoice \u20B9' + freight + ' freight.'; }
       toast(true, q.quoteId + ' approved \u2192 ' + orderId);
+      var ap = $('#approve-' + qid); if (ap) ap.classList.remove('open');
     }).catch(function (err) {
-      if (msg) { msg.className = 'fst er'; msg.textContent = err.message || 'Could not approve quote.'; }
-      toast(false, 'Approval failed for ' + qid);
+      if (err && err.message === 'ALREADY_APPROVED') {
+        if (msg) { msg.className = 'fst er'; msg.textContent = 'This quote was already approved (no duplicate documents were created).'; }
+        toast(false, qid + ' was already approved');
+      } else {
+        if (msg) { msg.className = 'fst er'; msg.textContent = (err && err.message) || 'Could not approve quote.'; }
+        toast(false, 'Approval failed for ' + qid);
+      }
+    }).finally(function () {
+      _approving[qid] = false;
+      if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Confirm & Generate'; }
     });
   };
 
@@ -604,7 +710,7 @@
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Timeline</button>' +
           (o.invoiceGenerated
             ? '<span class="st-badge st-ok" style="margin-left:auto;"><span class="st-dot"></span>Invoice Generated</span>'
-            : '<button class="btn-ghost btn-sm" type="button" style="margin-left:auto;" onclick="OWN.generateInvoice(\'' + o.orderId + '\')">Generate Invoice</button>') +
+            : '<span class="st-badge st-pending" style="margin-left:auto;"><span class="st-dot"></span>Invoice Pending</span>') +
         '</div>' +
         '<div class="fst" id="omsg-' + o.orderId + '"></div>' +
       '</div>'
@@ -686,13 +792,14 @@
       if (msg) { msg.className = 'fst ok'; msg.textContent = '\u2713 Status updated to ' + EGC.orderStatusLabel(sel.value) + '.'; }
       toast(true, orderId + ' \u2192 ' + EGC.orderStatusLabel(sel.value));
 
-      /* Notify customer of order status change */
+      /* Notify customer of order status change — reliable follow-up (B3). */
       if (order) {
         var notifMsg = 'Order ' + orderId + ' status updated to: ' + EGC.orderStatusLabel(sel.value) + '.';
-        EGC.createNotification(order.customerUid, 'order_status_update', notifMsg, { orderId: orderId, status: sel.value });
-        EGC.logActivity(order.customerUid, 'order_status_update',
+        EGC.reliableNotify(order.customerUid, 'order_status_update', notifMsg, { orderId: orderId, status: sel.value });
+        EGC.reliableActivity(order.customerUid, 'order_status_update',
           'Order ' + orderId + ' is now ' + EGC.orderStatusLabel(sel.value),
           { orderId: orderId, status: sel.value });
+        EGC.reliableAudit('notification_sent', notifMsg, { targetType: 'notification', targetId: order.customerUid, orderId: orderId, newValue: 'order_status_update' });
       }
 
       /* Audit trail — use specific action key for status so timeline icons work */
@@ -703,7 +810,7 @@
         delivered:      'delivered'
       };
       var specificAction = statusActionMap[sel.value] || 'status_changed';
-      EGC.logAudit(specificAction,
+      EGC.reliableAudit(specificAction,
         'Order ' + orderId + ' status changed from ' + EGC.orderStatusLabel(previousStatus) + ' to ' + EGC.orderStatusLabel(sel.value) + '.',
         { targetType: 'order', targetId: orderId, orderId: orderId, previousValue: previousStatus, newValue: sel.value });
 
@@ -713,35 +820,69 @@
   };
 
   /* ---------------------------------------------------------
-     GENERATE INVOICE (lightweight — creates an invoice record,
-     notifies the customer, and logs the audit trail).
+     GENERATE INVOICE — DEPRECATED MANUAL PATH.
+     Invoices + LRs are now created automatically at approval as
+     thin SSoT documents (see OWN.approve). This older path built a
+     FAT invoice record via INV.buildRecord and allocated an LR number
+     WITHOUT creating an LR document — both of which break the single
+     source of truth and can duplicate documents. It is intentionally
+     disabled. The only legitimate remaining use is recovering an order
+     that somehow has no invoice at all; that case is handled safely
+     below by creating thin invoice + LR records (never duplicates).
   --------------------------------------------------------- */
   window.OWN.generateInvoice = function (orderId) {
     var msg   = $('#omsg-' + orderId);
     var order = ownerOrdersCache.filter(function (o) { return o.orderId === orderId; })[0];
     if (!order) return;
 
-    Promise.all([EGC.nextInvoiceId(), INV.nextLrNumber()]).then(function (ids) {
+    /* Refuse if an invoice already exists — never create a duplicate. */
+    if (order.invoiceGenerated || order.invoiceId) {
+      if (msg) { msg.className = 'fst er'; msg.textContent = 'An invoice already exists for this order. Edit it in Manage Shipment instead.'; }
+      return;
+    }
+
+    /* Safe recovery: create THIN invoice + LR records (SSoT), mirroring
+       the approval flow, guarded by a transaction so it can't duplicate. */
+    Promise.all([EGC.nextInvoiceId(), INV.nextLrNumber(), LR.nextDocketNumber()]).then(function (ids) {
       var invoiceId = ids[0];
       var lrNumber  = ids[1];
-      var invoiceRecord = INV.buildRecord({
-        invoiceId: invoiceId,
-        lrNumber:  lrNumber,
-        order:     order,
-        quote:     order   /* order already carries the quote-sourced fields */
-      });
+      var docketNo  = ids[2];
+      var now = new Date();
+      var due = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
 
-      var batch = fbDB.batch();
-      batch.set(fbDB.collection('invoices').doc(invoiceId), invoiceRecord);
-      batch.update(fbDB.collection('orders').doc(orderId), {
-        invoiceGenerated: true,
-        invoiceId:        invoiceId,
-        lrNumber:         lrNumber,
-        updatedAt:        firebase.firestore.FieldValue.serverTimestamp()
-      });
-      return batch.commit().then(function () { return invoiceId; });
+      var invoiceRecord = {
+        invoiceId: invoiceId, invoiceNumber: invoiceId, orderId: orderId,
+        quoteId: order.quoteId || null, lrNumber: lrNumber, customerUid: order.customerUid,
+        invoiceDate: firebase.firestore.Timestamp.fromDate(now),
+        dueDate: firebase.firestore.Timestamp.fromDate(due),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+      var lrRecord = {
+        lrNumber: lrNumber, docketNumber: docketNo, orderId: orderId,
+        quoteId: order.quoteId || null, invoiceId: invoiceId, customerUid: order.customerUid,
+        lrDate: firebase.firestore.Timestamp.fromDate(now),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      var orderRef = fbDB.collection('orders').doc(orderId);
+      return fbDB.runTransaction(function (tx) {
+        return tx.get(orderRef).then(function (snap) {
+          if (!snap.exists) throw new Error('Order no longer exists.');
+          var cur = snap.data();
+          if (cur.invoiceGenerated || cur.invoiceId) throw new Error('ALREADY_HAS_INVOICE');
+          tx.set(fbDB.collection('invoices').doc(invoiceId), invoiceRecord);
+          tx.set(fbDB.collection('lorryReceipts').doc(lrNumber), lrRecord);
+          tx.update(orderRef, {
+            invoiceGenerated: true, lrGenerated: true,
+            invoiceId: invoiceId, lrNumber: lrNumber,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        });
+      }).then(function () { return invoiceId; });
     }).then(function (invoiceId) {
-      if (msg) { msg.className = 'fst ok'; msg.textContent = '\u2713 Invoice ' + invoiceId + ' generated.'; }
+      if (msg) { msg.className = 'fst ok'; msg.textContent = '\u2713 Invoice ' + invoiceId + ' and Lorry Receipt generated.'; }
       toast(true, 'Invoice ' + invoiceId + ' generated for ' + orderId);
 
       var notifMsg = 'Invoice ' + invoiceId + ' has been generated for order ' + orderId + '.';
@@ -753,7 +894,9 @@
         previousValue: null, newValue: { invoiceId: invoiceId }
       });
     }).catch(function (err) {
-      if (msg) { msg.className = 'fst er'; msg.textContent = err.message || 'Could not generate invoice.'; }
+      if (err && err.message === 'ALREADY_HAS_INVOICE') {
+        if (msg) { msg.className = 'fst er'; msg.textContent = 'An invoice already exists for this order (no duplicate created).'; }
+      } else if (msg) { msg.className = 'fst er'; msg.textContent = (err && err.message) || 'Could not generate invoice.'; }
     });
   };
 
@@ -1294,7 +1437,12 @@
 
   function updateInvStats() {
     var out = 0, paid = 0, pend = 0;
-    ownerInvCache.forEach(function (inv) {
+    ownerInvCache.forEach(function (invDoc) {
+      /* Project from the master ORDER (SSoT). Thin invoice docs carry NO
+         amounts or payment status, so aggregating them raw would report
+         zero outstanding and count every invoice as pending. */
+      var order = SHIP.getOrderSync ? SHIP.getOrderSync(invDoc.orderId) : null;
+      var inv = SHIP.toInvoiceView(order, invDoc);
       var t = INV.computeTotals(inv);
       out += t.outstanding;
       if (INV.effectiveStatus(inv) === 'paid') paid++; else pend++;
@@ -1762,7 +1910,7 @@
       /* payment */
       advanceReceived:     numv('advance'),
       receivedAmount:      numv('received'),
-      paymentStatus:       val('status') || lrDoc.paymentStatus || 'pending',
+      paymentStatus:       val('status') || (SHIP.getOrderSync(lrDoc.orderId) || {}).paymentStatus || 'pending',
       gstPayableBy:        val('gstby').trim() || 'Consignee',
       /* notes */
       insuranceDetails:    val('insurance').trim(),
@@ -1791,10 +1939,12 @@
       if (msg) { msg.className = 'fst ok'; msg.textContent = '\u2713 Shipment updated. Invoice, LR, accounting and both dashboards now reflect the changes.'; }
       toast(true, (lrDoc.lrNumber || lrDoc.orderId) + ' updated');
 
-      EGC.createNotification(lrDoc.customerUid, 'shipment_updated',
+      EGC.reliableNotify(lrDoc.customerUid, 'shipment_updated',
         'Your shipment ' + (lrDoc.orderId || '') + ' was updated with the latest transport and billing details.',
         { lrNumber: lrDoc.lrNumber, orderId: lrDoc.orderId, invoiceId: lrDoc.invoiceId });
-      EGC.logAudit('shipment_updated',
+      EGC.reliableAudit('notification_sent', 'Shipment ' + (lrDoc.orderId || '') + ' update notice sent.',
+        { targetType: 'notification', targetId: lrDoc.customerUid, orderId: lrDoc.orderId, newValue: 'shipment_updated' });
+      EGC.reliableAudit('shipment_updated',
         'Shipment ' + lrDoc.orderId + ' updated (vehicle ' + (orderUpdate.vehicleNumber || '\u2014') + ', status ' + LR.paymentLabel(orderUpdate.paymentStatus) + ').',
         { targetType: 'order', targetId: lrDoc.orderId, orderId: lrDoc.orderId, quoteId: lrDoc.quoteId,
           previousValue: null, newValue: { vehicle: orderUpdate.vehicleNumber, paymentStatus: orderUpdate.paymentStatus } });

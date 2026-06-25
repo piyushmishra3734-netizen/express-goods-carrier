@@ -258,8 +258,11 @@
       receivedAmount:  c.received,
       invoiceAmount:     c.grandTotal,
       outstandingAmount: c.outstanding,
-      paymentStatus:   order.paymentStatus || d.paymentStatus || 'pending',
-      paymentDate:     order.paymentDate || d.paymentDate || null
+      /* PAYMENT STATUS IS ORDER-ONLY (SSoT). When an order exists it is the
+         sole authority; the document-level value is ignored. Only a true
+         legacy invoice with no order falls back to its own stored value. */
+      paymentStatus:   order.orderId ? (order.paymentStatus || 'pending') : (d.paymentStatus || 'pending'),
+      paymentDate:     order.orderId ? (order.paymentDate || null) : (d.paymentDate || null)
     });
   };
 
@@ -320,7 +323,8 @@
       sgstRate:        toNum(src.sgstRate),
       cgstRate:        toNum(src.cgstRate),
       grandTotalAmount: c.grandTotal,
-      paymentStatus:   order.paymentStatus || d.paymentStatus || 'pending'
+      /* Payment status is order-only (SSoT); doc fallback only for legacy LRs. */
+      paymentStatus:   order.orderId ? (order.paymentStatus || 'pending') : (d.paymentStatus || 'pending')
     });
   };
 
