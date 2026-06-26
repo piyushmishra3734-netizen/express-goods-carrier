@@ -107,7 +107,7 @@
     var freight = toNum(pricing.freight != null ? pricing.freight
                         : (q.revisedPrice != null ? q.revisedPrice : pricing.price));
 
-    return {
+    var order = {
       /* identity + document links (doc-specific numbers stay on the docs;
          the order keeps references so modules can resolve each other) */
       orderId:    opts.orderId,
@@ -200,6 +200,66 @@
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
+
+    /* ----------------------------------------------------------
+       OWNER OVERRIDES (Manual Order, Phase 6)
+       A customer quote leaves charges/transport/payment at their
+       defaults (owner fills them later in Manage Shipment). When the
+       OWNER creates an order directly from a phone call they already
+       know all of it, so they may pass an `owner` bundle here. We apply
+       it onto the SAME order object using the SAME canonical field
+       names — no parallel schema, no new collection. Any field left
+       out simply keeps its quote-flow default, so the resulting order
+       is indistinguishable from one built through the customer quote
+       path and projects identically to Invoice / LR / Accounting.
+    ---------------------------------------------------------- */
+    var ov = opts.owner;
+    if (ov) {
+      /* charge breakdown — only override keys that were supplied */
+      [ 'freight', 'fov', 'labour', 'localCollection', 'doorDelivery',
+        'docketCharges', 'haltingCharges', 'extraCharges', 'discount',
+        'sgstRate', 'cgstRate'
+      ].forEach(function (k) { if (ov[k] != null && ov[k] !== '') order[k] = toNum(ov[k]); });
+
+      /* payment */
+      if (ov.advanceReceived != null && ov.advanceReceived !== '') order.advanceReceived = toNum(ov.advanceReceived);
+      if (ov.receivedAmount  != null && ov.receivedAmount  !== '') order.receivedAmount  = toNum(ov.receivedAmount);
+
+      /* transport / driver (all optional) */
+      if (ov.vehicleNumber != null) order.vehicleNumber = String(ov.vehicleNumber).trim();
+      if (ov.vehicleType   != null && ov.vehicleType !== '') order.vehicleType = String(ov.vehicleType).trim();
+      if (ov.driverName    != null) order.driverName    = String(ov.driverName).trim();
+      if (ov.driverMobile  != null) order.driverMobile  = String(ov.driverMobile).trim();
+
+      /* extras */
+      if (ov.ewayBill            != null) order.ewayBill            = String(ov.ewayBill).trim();
+      if (ov.remarks             != null) order.remarks            = String(ov.remarks).trim();
+      if (ov.insuranceDetails    != null) order.insuranceDetails   = String(ov.insuranceDetails).trim();
+      if (ov.estimatedDelivery   != null) order.estimatedDelivery  = String(ov.estimatedDelivery).trim();
+      if (ov.gstPayableBy        != null && ov.gstPayableBy !== '') order.gstPayableBy = String(ov.gstPayableBy).trim();
+
+      /* derive payment status from the figures unless explicitly set */
+      var c = window.SHIP.computeCharges(order);
+      if (ov.paymentStatus) {
+        order.paymentStatus = ov.paymentStatus;
+      } else if (c.outstanding <= 0 && c.grandTotal > 0) {
+        order.paymentStatus = 'paid';
+      } else if ((c.advance + c.received) > 0) {
+        order.paymentStatus = 'partial';
+      } else {
+        order.paymentStatus = 'pending';
+      }
+      if (order.paymentStatus === 'paid') {
+        order.paymentDate = firebase.firestore.FieldValue.serverTimestamp();
+      }
+
+      /* provenance — marks this order as owner-originated. Purely
+         informational; every downstream module ignores it and treats
+         the order exactly like a quote-derived one. */
+      order.source = 'owner_manual';
+    }
+
+    return order;
   };
 
   /* ----------------------------------------------------------
@@ -297,6 +357,7 @@
       consigneeEmail:   pick(order, d, 'consigneeEmail'),
       consigneeGstin:   pick(order, d, 'consigneeGstin'),
       ewayBill:         pick(order, d, 'ewayBill'),
+      estimatedDelivery: pick(order, d, 'estimatedDelivery'),
       fromLocation:     order.pickup   || d.fromLocation || '',
       toLocation:       order.delivery || d.toLocation   || '',
       materialDescription: order.materialType || d.materialDescription || '',
@@ -357,6 +418,7 @@
       chargedWeight: o.chargedWeight || '',
       vehicleNumber: o.vehicleNumber || '',
       ewayBill:      o.ewayBill || '',
+      estimatedDelivery: o.estimatedDelivery || '',
       freight:         c.lines.freight,
       fov:             c.lines.fov,
       labour:          c.lines.labour,
@@ -389,7 +451,8 @@
     'freight', 'fov', 'labour', 'localCollection', 'doorDelivery', 'docketCharges',
     'haltingCharges', 'extraCharges', 'discount', 'sgstRate', 'cgstRate',
     'advanceReceived', 'receivedAmount', 'paymentStatus',
-    'specialInstructions', 'insuranceDetails', 'remarks', 'gstPayableBy'
+    'specialInstructions', 'insuranceDetails', 'remarks', 'gstPayableBy',
+    'estimatedDelivery'
   ];
 
   /* ----------------------------------------------------------

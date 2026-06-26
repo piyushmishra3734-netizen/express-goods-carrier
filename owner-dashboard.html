@@ -266,6 +266,25 @@ main{padding:108px 24px 80px;max-width:1180px;margin:0 auto;}
 .inv-edit-hint{font-size:11px;color:var(--muted);}
 @media(max-width:880px){.inv-edit-grid{grid-template-columns:repeat(2,1fr);}}
 @media(max-width:640px){.inv-card-grid{grid-template-columns:1fr 1fr;}.inv-edit-grid{grid-template-columns:1fr;}.inv-edit-hint{width:100%;}}
+
+/* ── Manual Order modal (Phase 6) ── */
+.m-modal{position:fixed;inset:0;z-index:200;display:none;}
+.m-modal.on{display:block;}
+.m-backdrop{position:absolute;inset:0;background:rgba(4,5,8,.74);backdrop-filter:blur(3px);}
+.m-dialog{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);display:flex;flex-direction:column;background:var(--d2);border:1px solid var(--linem);border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.55);overflow:hidden;animation:fadein .2s var(--ease);}
+.m-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px 4px;}
+.m-head h3{font-size:20px;font-weight:800;}
+.m-eyebrow{font-family:'IBM Plex Mono';font-size:10px;letter-spacing:1.5px;color:var(--amber);text-transform:uppercase;margin-bottom:5px;}
+.m-body{padding:8px 24px 24px;overflow-y:auto;}
+.m-type-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0 20px;}
+.m-type-card{text-align:left;display:flex;flex-direction:column;gap:5px;padding:15px 16px;border:1px solid var(--linem);border-radius:11px;background:var(--blk);transition:border-color .2s,background .2s;}
+.m-type-card svg{color:var(--muted);}
+.m-type-card .mtc-t{font-size:14px;font-weight:700;color:#fff;}
+.m-type-card .mtc-d{font-size:11.5px;color:var(--muted);line-height:1.45;}
+.m-type-card.on{border-color:var(--amber);background:rgba(245,147,10,.07);}
+.m-type-card.on svg{color:var(--amber);}
+.m-actions{display:flex;align-items:center;gap:12px;margin-top:22px;flex-wrap:wrap;}
+@media(max-width:560px){.m-type-grid{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -387,8 +406,17 @@ main{padding:108px 24px 80px;max-width:1180px;margin:0 auto;}
   <!-- ORDERS PANEL -->
   <div class="dash-panel" id="panel-orders">
     <div class="dcard">
-      <h3>Orders</h3>
-      <p class="hint">Update status manually as a shipment progresses. Real-time updates push to customer dashboards instantly.</p>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div>
+          <h3>Orders</h3>
+          <p class="hint" style="margin-bottom:0;">Update status manually as a shipment progresses. Real-time updates push to customer dashboards instantly.</p>
+        </div>
+        <button class="btn-a" type="button" onclick="OWN.openManualOrder()" style="flex:none;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Create Manual Order
+        </button>
+      </div>
+      <p class="hint" style="margin-top:12px;">Took a booking over the phone? Create the order directly — it generates the Invoice, Lorry Receipt and accounting entries instantly, exactly like an approved quote.</p>
       <div class="chip-row" id="orderFilterChips">
         <span class="chip on" data-filter="all">All</span>
         <span class="chip" data-filter="approved">Approved</span>
@@ -560,6 +588,166 @@ main{padding:108px 24px 80px;max-width:1180px;margin:0 auto;}
     </div>
     <div class="tl-drawer-body" id="tlDrawerBody"></div>
   </aside>
+</div>
+
+<!-- ═══ MANUAL ORDER MODAL (Phase 6) ═══ -->
+<div class="m-modal" id="manualModal" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
+  <div class="m-backdrop" onclick="OWN.closeManualOrder()"></div>
+  <div class="m-dialog">
+    <div class="m-head">
+      <div>
+        <div class="m-eyebrow">Phone Booking</div>
+        <h3 id="manualTitle">Create Manual Order</h3>
+      </div>
+      <button class="tl-close" type="button" onclick="OWN.closeManualOrder()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <p class="hint" style="padding:0 24px;">Generates the Order, Invoice, Lorry Receipt and accounting entries immediately — no customer approval needed. Everything stays editable later in Manage Shipment.</p>
+
+    <div class="m-body">
+      <form id="manualForm" onsubmit="return false;">
+        <input type="hidden" id="mShipmentType" value="commercial">
+
+        <!-- shipment type -->
+        <div class="m-type-grid">
+          <button type="button" class="m-type-card on" data-mtype="commercial" onclick="OWN.manualPickType('commercial')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="20" height="20"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-3"/></svg>
+            <span class="mtc-t">Commercial</span>
+            <span class="mtc-d">Business consignment — company, GST &amp; registered details.</span>
+          </button>
+          <button type="button" class="m-type-card" data-mtype="personal" onclick="OWN.manualPickType('personal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" width="20" height="20"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span class="mtc-t">Personal</span>
+            <span class="mtc-d">Individual sender &amp; receiver — no GST.</span>
+          </button>
+        </div>
+
+        <!-- COMMERCIAL -->
+        <div id="mCommercialBlock">
+          <div class="sf-sub">From — Consignor (Sender Company)</div>
+          <div class="sf-fd co-autocomplete">
+            <label>Company Name *</label>
+            <input type="text" id="mCompanyName" placeholder="Start typing the sender company name…" autocomplete="off">
+            <div class="co-suggest" id="mCoSuggest"></div>
+          </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Contact Person</label><input type="text" id="mContactPerson" placeholder="Person handling this shipment"></div>
+            <div class="sf-fd"><label>Mobile</label><input type="text" id="mCompanyMobile" placeholder="Contact mobile number"></div>
+          </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Email</label><input type="email" id="mCompanyEmail" placeholder="billing@company.com"></div>
+            <div class="sf-fd"><label>GST Number</label><input type="text" id="mGst" placeholder="e.g. 23AAFCM0088C1ZX"></div>
+          </div>
+          <div class="sf-fd"><label>Address</label><input type="text" id="mRegAddress" placeholder="Registered / pickup address"></div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>City</label><input type="text" id="mCity" placeholder="City"></div>
+            <div class="sf-fd"><label>State</label><input type="text" id="mState" placeholder="State"></div>
+          </div>
+
+          <div class="sf-sub" style="margin-top:18px;">To — Consignee (Receiver Company)</div>
+          <div class="sf-fd co-autocomplete">
+            <label>Company Name *</label>
+            <input type="text" id="mConsigneeName" placeholder="Start typing the receiver company name…" autocomplete="off">
+            <div class="co-suggest" id="mCoSuggestTo"></div>
+          </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Contact Person</label><input type="text" id="mConsigneeContactPerson" placeholder="Person receiving this shipment"></div>
+            <div class="sf-fd"><label>Mobile</label><input type="text" id="mConsigneeMobile" placeholder="Contact mobile number"></div>
+          </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Email</label><input type="email" id="mConsigneeEmail" placeholder="receiver@company.com"></div>
+            <div class="sf-fd"><label>GST Number</label><input type="text" id="mConsigneeGst" placeholder="e.g. 27AAACX1234D1ZP"></div>
+          </div>
+          <div class="sf-fd"><label>Address</label><input type="text" id="mConsigneeAddress" placeholder="Registered / delivery address"></div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>City</label><input type="text" id="mConsigneeCity" placeholder="City"></div>
+            <div class="sf-fd"><label>State</label><input type="text" id="mConsigneeState" placeholder="State"></div>
+          </div>
+        </div>
+
+        <!-- PERSONAL -->
+        <div id="mPersonalBlock" style="display:none;">
+          <div class="sf-sub">Sender (Consignor)</div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Sender Name *</label><input type="text" id="mSenderName" placeholder="Full name"></div>
+            <div class="sf-fd"><label>Sender Mobile *</label><input type="text" id="mSenderMobile" placeholder="Mobile number"></div>
+          </div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Sender Email</label><input type="email" id="mSenderEmail" placeholder="Email (optional)"></div>
+            <div class="sf-fd"><label>Pickup Address *</label><input type="text" id="mPickupAddress" placeholder="Full pickup address"></div>
+          </div>
+          <div class="sf-sub">Receiver (Consignee)</div>
+          <div class="sf-row">
+            <div class="sf-fd"><label>Receiver Name *</label><input type="text" id="mReceiverName" placeholder="Full name"></div>
+            <div class="sf-fd"><label>Receiver Mobile *</label><input type="text" id="mReceiverMobile" placeholder="Mobile number"></div>
+          </div>
+          <div class="sf-fd"><label>Delivery Address *</label><input type="text" id="mDeliveryAddress" placeholder="Full delivery address"></div>
+        </div>
+
+        <!-- CONSIGNMENT -->
+        <div class="sf-sub">Consignment</div>
+        <div class="sf-row">
+          <div class="sf-fd"><label>Pickup Location *</label><input type="text" id="mPickup" placeholder="City / State"></div>
+          <div class="sf-fd"><label>Delivery Location *</label><input type="text" id="mDelivery" placeholder="City / State"></div>
+        </div>
+        <div class="sf-row">
+          <div class="sf-fd">
+            <label>Material Type *</label>
+            <select id="mMaterial">
+              <option value="">Select material type</option>
+              <option>Raw Materials / Metals</option>
+              <option>Chemicals / Industrial Liquids</option>
+              <option>Machinery &amp; Equipment</option>
+              <option>Consumer Goods / FMCG</option>
+              <option>Construction Materials</option>
+              <option>Agricultural Products</option>
+              <option>Auto Parts / Components</option>
+              <option>Household Goods / Personal Effects</option>
+              <option>Other Cargo</option>
+            </select>
+          </div>
+          <div class="sf-fd"><label>Weight (kg) *</label><input type="number" id="mWeight" min="1" step="1" placeholder="e.g. 5000"></div>
+        </div>
+        <div class="sf-row">
+          <div class="sf-fd"><label>Number of Packages</label><input type="number" id="mPackages" min="1" step="1" placeholder="e.g. 12"></div>
+          <div class="sf-fd"><label>Pickup Date</label><input type="date" id="mPickupDate"></div>
+        </div>
+
+        <!-- PRICING (owner knows the freight) -->
+        <div class="sf-sub">Pricing &amp; Payment</div>
+        <div class="sf-row">
+          <div class="sf-fd"><label>Freight (₹) *</label><input type="number" id="mFreight" min="0" step="1" placeholder="e.g. 18000"></div>
+          <div class="sf-fd"><label>Halting Charges (₹)</label><input type="number" id="mHalting" min="0" step="1" placeholder="0"></div>
+        </div>
+        <div class="sf-row">
+          <div class="sf-fd"><label>Extra Charges (₹)</label><input type="number" id="mExtra" min="0" step="1" placeholder="0"></div>
+          <div class="sf-fd"><label>Discount (₹)</label><input type="number" id="mDiscount" min="0" step="1" placeholder="0"></div>
+        </div>
+        <div class="sf-fd"><label>Advance Received (₹)</label><input type="number" id="mAdvance" min="0" step="1" placeholder="0"></div>
+
+        <!-- TRANSPORT (optional) -->
+        <div class="sf-sub">Transport &amp; Delivery <span style="color:var(--muted2);text-transform:none;letter-spacing:0;font-weight:400;">(optional)</span></div>
+        <div class="sf-row">
+          <div class="sf-fd"><label>Vehicle Number</label><input type="text" id="mVehicle" placeholder="e.g. RJ-20GB-4602"></div>
+          <div class="sf-fd"><label>E-Way Bill Number</label><input type="text" id="mEway" placeholder="Shown on docs only if provided"></div>
+        </div>
+        <div class="sf-row">
+          <div class="sf-fd"><label>Driver Name</label><input type="text" id="mDriver" placeholder="Driver name"></div>
+          <div class="sf-fd"><label>Driver Mobile</label><input type="text" id="mDriverMobile" placeholder="Driver mobile"></div>
+        </div>
+        <div class="sf-fd"><label>Estimated Delivery Date</label><input type="date" id="mEta"></div>
+
+        <div class="sf-fd"><label>Notes / Special Instructions</label><textarea id="mNotes" placeholder="Special handling, dimensions, timeline…"></textarea></div>
+
+        <div class="m-actions">
+          <button class="btn-a" type="button" id="manualSubmitBtn" onclick="OWN.submitManualOrder()">Create Order</button>
+          <button class="btn-ghost" type="button" onclick="OWN.closeManualOrder()">Cancel</button>
+        </div>
+        <div class="fst" id="manualMsg" style="display:none;"></div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <div id="toastHost"></div>

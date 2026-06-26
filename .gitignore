@@ -1,0 +1,66 @@
+# ───────────────────────────────────────────────────────────
+#  Orbit Logistics — .gitignore
+# ───────────────────────────────────────────────────────────
+
+# Dependencies
+node_modules/
+.npm/
+.pnp/
+.pnp.js
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build / cache
+dist/
+build/
+.cache/
+.parcel-cache/
+.vite/
+*.tsbuildinfo
+
+# Testing & QA artifacts
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+playwright/.cache/
+qa-report/
+qa/
+*.qa.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Screenshots & generated previews
+screenshots/
+*-preview.png
+*.screenshot.png
+
+# Firebase local artifacts (keep rules + indexes, ignore local/emulator state)
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.runtimeconfig.json
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.local
+
+# Editor / OS cruft
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

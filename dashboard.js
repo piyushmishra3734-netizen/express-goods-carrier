@@ -57,6 +57,7 @@
   --------------------------------------------------------- */
   var currentUser = null;
   var unsubFns    = [];
+  var custOrdersCache = [];
 
   TOS.onReady(function (user) {
     var guard = $('#guard');
@@ -311,6 +312,7 @@
              downloads project from the master order. */
           if (window.SHIP) SHIP.primeOrder(o);
         });
+        custOrdersCache = orders;
 
         console.log('[DASH][orders] uid =', uid, '| result count =', orders.length,
           '| first doc =', orders[0] || null);
@@ -328,6 +330,8 @@
         renderOrderHistory(orders);
         /* SSoT: order changes must refresh the projected invoice cards. */
         if (typeof renderCustInvoices === 'function' && typeof custInvCache !== 'undefined' && custInvCache) renderCustInvoices(custInvCache);
+        /* Keep an open Tracking hub showing the latest data. */
+        if (typeof refreshTracking === 'function') refreshTracking();
 
       }, function (err) {
         console.error('[DASH][orders] listener ERROR for uid =', uid, '| code =', err.code, '| message =', err.message);
@@ -934,6 +938,201 @@
     if (!inv) return;
     if (!lr) { alert('Lorry Receipt is being prepared for this order. Please check back shortly.'); return; }
     SHIP.openCombined(inv, lr, true).then(function (ok) { if (!ok) alert('Please allow pop-ups to download the combined PDF.'); });
+  };
+
+  /* ===========================================================
+     SHIPMENT TRACKING — Phase 6, Part 2
+     ----------------------------------------------------------
+     A complete Shipment Hub the customer reaches by entering an
+     Invoice Number OR an LR Number. Everything shown is projected
+     from the SAME SSoT data the rest of the dashboard uses
+     (orders + invoice/LR docs + SHIP projections) — no duplicate
+     collections, no new business logic. Downloads reuse the
+     existing CUST.download* handlers. Because it reads only the
+     customer's own cached invoices/LRs/orders, it automatically
+     respects the existing Firestore security rules, and any future
+     manual order linked to this account will simply appear here
+     with no architectural change.
+  =========================================================== */
+  var _trackedDocId = null;   /* invoice _docId currently shown, for live refresh */
+
+  function norm(s) { return String(s || '').trim().toUpperCase().replace(/\s+/g, ''); }
+
+  /* Format a plain YYYY-MM-DD date string as DD-MM-YYYY (ETA is stored as a
+     date-input string, not a Firestore timestamp). */
+  function fmtYmd(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '').trim());
+    return m ? (m[3] + '-' + m[2] + '-' + m[1]) : String(s || '');
+  }
+
+  /* Resolve an invoice doc from the customer's caches by invoice OR LR number. */
+  function findShipmentByNumber(query) {
+    var q = norm(query);
+    if (!q) return null;
+    /* try invoice number first */
+    var inv = custInvCache.filter(function (i) {
+      return norm(i.invoiceNumber || i.invoiceId) === q;
+    })[0];
+    if (inv) return inv;
+    /* try LR number → map to its invoice */
+    var lr = custLrCache.filter(function (l) { return norm(l.lrNumber) === q; })[0];
+    if (lr) {
+      var byLr = custInvCache.filter(function (i) {
+        return (lr.invoiceId && i.invoiceId === lr.invoiceId) ||
+               (lr.orderId && i.orderId === lr.orderId);
+      })[0];
+      if (byLr) return byLr;
+    }
+    /* try order id as a convenience */
+    var byOrder = custInvCache.filter(function (i) { return norm(i.orderId) === q; })[0];
+    return byOrder || null;
+  }
+
+  function trkProgress(status) {
+    var seq = EGC.ORDER_STATUS_SEQUENCE; /* approved..delivered */
+    var idx = seq.indexOf(status); if (idx < 0) idx = 0;
+    /* overall journey incl. the 2 pre-order steps = 7 nodes, 6 gaps */
+    var overall = 2 + idx;            /* 2..6 */
+    return Math.round((overall / 6) * 100);
+  }
+
+  function payClassFor(s) {
+    return s === 'paid' ? 'pay-paid' : s === 'partial' ? 'pay-partial'
+         : s === 'overdue' ? 'pay-overdue' : 'pay-pending';
+  }
+
+  function trkCell(label, value) {
+    if (value == null || value === '') return '';
+    return '<div class="trk-cell"><div class="trk-cl">' + label + '</div><div class="trk-cv">' + EGC.esc(value) + '</div></div>';
+  }
+
+  function renderShipmentHub(invDoc) {
+    var host = $('#trkResult');
+    if (!host) return;
+    var order = window.SHIP && SHIP.getOrderSync ? SHIP.getOrderSync(invDoc.orderId) : null;
+    var inv   = window.SHIP ? SHIP.toInvoiceView(order, invDoc) : invDoc;
+    var lr    = findCustLrForInvoice(invDoc);
+    var t     = INV.computeTotals(inv);
+
+    var status      = (order && order.status) || 'approved';
+    var statusLabel = EGC.orderStatusLabel(status);
+    var statusCls   = EGC.orderStatusClass(status);
+    var pct         = trkProgress(status);
+    var payStatus   = INV.effectiveStatus(inv);
+    var payLabel    = INV.paymentLabel(payStatus);
+
+    /* status badge colours reuse the st-* palette via inline mapping */
+    var badgeColor = statusCls === 'st-ok' ? 'background:rgba(61,214,140,.13);color:var(--green);border:1px solid rgba(61,214,140,.3);'
+                    : statusCls === 'st-progress' ? 'background:rgba(245,147,10,.13);color:var(--amber);border:1px solid rgba(245,147,10,.3);'
+                    : 'background:rgba(138,154,176,.13);color:var(--muted);border:1px solid rgba(138,154,176,.25);';
+
+    var driverName  = (order && order.driverName) || lr && lr.driverName || '';
+    var driverMobile= (order && order.driverMobile) || lr && lr.driverMobile || '';
+    var vehicle     = (order && order.vehicleNumber) || lr && lr.vehicleNumber || '';
+    var eta         = (order && order.estimatedDelivery) || '';
+
+    var docId = invDoc._docId;
+    _trackedDocId = docId;
+
+    var html =
+      '<div class="trk-hub">' +
+        '<div class="trk-hub-top">' +
+          '<div class="trk-ids">' +
+            '<div class="trk-order">' + EGC.esc(inv.invoiceNumber || inv.invoiceId) + '</div>' +
+            '<div class="trk-sub">' + EGC.esc(inv.lrNumber || '') + (inv.orderId ? (' \u00B7 Order ' + EGC.esc(inv.orderId)) : '') + '</div>' +
+          '</div>' +
+          '<span class="trk-status-badge" style="' + badgeColor + '"><span class="st-dot"></span>' + EGC.esc(statusLabel) + '</span>' +
+        '</div>' +
+
+        '<div class="trk-progress-wrap">' +
+          '<div class="trk-progress-label"><span>Shipment progress</span><span>' + pct + '%</span></div>' +
+          '<div class="trk-progress-bar"><div class="trk-progress-fill" style="width:' + pct + '%;"></div></div>' +
+        '</div>' +
+
+        buildOrderTimeline({ status: status }) +
+
+        '<div class="trk-route">' +
+          '<div class="trk-route-pt"><div class="trk-rl">Pickup</div><div class="trk-rv">' + EGC.esc(inv.fromLocation || '\u2014') + '</div></div>' +
+          '<svg class="trk-route-arrow" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>' +
+          '<div class="trk-route-pt" style="text-align:right;"><div class="trk-rl">Delivery</div><div class="trk-rv">' + EGC.esc(inv.toLocation || '\u2014') + '</div></div>' +
+        '</div>' +
+
+        '<div class="trk-grid">' +
+          trkCell('Payment Status', payLabel) +
+          trkCell('Outstanding', '\u20B9' + INV.fmtMoney(t.outstanding)) +
+          trkCell('Invoice Value', '\u20B9' + INV.fmtMoney(t.invoiceValue)) +
+          trkCell('Vehicle Number', vehicle) +
+          trkCell('Driver Name', driverName) +
+          trkCell('Driver Mobile', driverMobile) +
+          trkCell('Estimated Delivery', eta ? fmtYmd(eta) : '') +
+        '</div>' +
+
+        '<div class="trk-section-title">Documents</div>' +
+        '<div class="trk-docs">' +
+          '<button class="btn-doc" onclick="CUST.downloadInvoice(\'' + EGC.esc(docId) + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Invoice PDF</button>' +
+          '<button class="btn-doc" onclick="CUST.downloadLR(\'' + EGC.esc(docId) + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Lorry Receipt PDF</button>' +
+          '<button class="btn-doc btn-doc-primary" onclick="CUST.downloadCombined(\'' + EGC.esc(docId) + '\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Combined PDF</button>' +
+        '</div>' +
+
+        '<a class="trk-contact" href="https://wa.me/919826134701?text=' + encodeURIComponent('Hi, I have a question about shipment ' + (inv.invoiceNumber || inv.invoiceId)) + '" target="_blank" rel="noopener">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.1-1.7-.8-1.9-.9-.3-.1-.4-.1-.6.1-.2.3-.7.9-.8 1-.1.2-.3.2-.5.1-.7-.3-1.4-.6-2-1.1-.5-.5-.9-1.1-1.3-1.7-.1-.2 0-.4.1-.5.1-.1.2-.3.4-.4.1-.1.2-.2.2-.4.1-.1 0-.3 0-.4 0-.1-.6-1.5-.8-2-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.6.3-.7.7-1 1.5-1 2.4.1 1 .5 2 1.1 2.8 1.1 1.6 2.5 2.9 4.2 3.6.5.2 1 .4 1.6.5.5.1 1 .1 1.5 0 .6-.1 1.7-.7 1.9-1.4.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.5-.3zM12 2a10 10 0 00-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1012 2z"/></svg>' +
+          'Contact Express Goods Carrier' +
+        '</a>' +
+      '</div>';
+
+    host.innerHTML = html;
+    host.style.display = 'block';
+  }
+
+  /* Live refresh of an open hub when orders/invoices change. */
+  function refreshTracking() {
+    if (!_trackedDocId) return;
+    var inv = custInvCache.filter(function (i) { return i._docId === _trackedDocId; })[0];
+    if (inv) renderShipmentHub(inv);
+  }
+
+  window.CUST.track = function () {
+    var input = $('#trkInput');
+    var msg   = $('#trkMsg');
+    var host  = $('#trkResult');
+    var q = input ? input.value : '';
+    if (msg) { msg.style.display = 'none'; msg.textContent = ''; }
+    if (!norm(q)) {
+      if (msg) { msg.style.display = 'block'; msg.className = 'fst er'; msg.textContent = 'Enter an Invoice Number or LR Number to track.'; }
+      return;
+    }
+    var inv = findShipmentByNumber(q);
+    if (!inv) {
+      _trackedDocId = null;
+      if (host) host.style.display = 'none';
+      if (msg) { msg.style.display = 'block'; msg.className = 'fst er'; msg.textContent = 'No shipment found for "' + q.trim() + '". Check the number and try again — only shipments on your account are shown.'; }
+      return;
+    }
+    renderShipmentHub(inv);
+  };
+
+  window.CUST.trackQuick = function (num) {
+    var input = $('#trkInput'); if (input) input.value = num;
+    CUST.track();
+  };
+
+  /* Populate quick-pick chips with the customer's most recent shipments. */
+  function renderTrackRecent() {
+    var host = $('#trkRecent');
+    if (!host) return;
+    var chips = custInvCache.slice(0, 6).map(function (i) {
+      var num = i.invoiceNumber || i.invoiceId;
+      return '<span class="trk-chip" onclick="CUST.trackQuick(\'' + EGC.esc(num) + '\')">' + EGC.esc(num) + '</span>';
+    }).join('');
+    host.innerHTML = chips;
+  }
+
+  /* Refresh chips whenever the invoice cache re-renders. */
+  var _origRenderCustInvoices = renderCustInvoices;
+  renderCustInvoices = function (rows) {
+    _origRenderCustInvoices(rows);
+    renderTrackRecent();
+    refreshTracking();
   };
 
 })();

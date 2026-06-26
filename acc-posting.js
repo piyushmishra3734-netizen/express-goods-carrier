@@ -117,7 +117,15 @@
     return findAuto(row.orderId, 'sales').then(function (existing) {
       if (!existing) return ACC.autoPostSales(order);          /* first time */
       var newGrand = round2(row.grandTotal);
+      /* The customer RECEIVABLE is the debtors debit on the original sales
+         entry — NOT existing.totalDebit, which is inflated by the discount-
+         allowed line whenever a discount is present. Comparing against the
+         receivable keeps the delta (and the debtors sub-ledger) exactly in
+         step with the order's grand total. */
+      var a0 = ACC.settings().accounts;
       var oldGrand = round2(existing.totalDebit);
+      var drLine = (existing.lines || []).filter(function (l) { return l.accountCode === a0.debtors && round2(l.debit) > 0; })[0];
+      if (drLine) oldGrand = round2(drLine.debit);
       if (newGrand === oldGrand) return existing;              /* unchanged */
 
       return hasReceipts(row.orderId).then(function (paid) {

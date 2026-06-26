@@ -301,6 +301,39 @@ main{padding:108px 24px 80px;max-width:1080px;margin:0 auto;}
 .pay-overdue{background:rgba(255,107,107,.13);color:#ff6b6b;border:1px solid rgba(255,107,107,.3);}
 .btn-sm{padding:9px 15px !important;font-size:12.5px !important;}
 @media(max-width:640px){.cinv-grid{grid-template-columns:1fr 1fr;}}
+
+/* ── Shipment Tracking (Phase 6) ── */
+.trk-search{display:flex;align-items:center;gap:10px;position:relative;margin-top:6px;}
+.trk-search-icon{position:absolute;left:14px;width:17px;height:17px;color:var(--muted2);pointer-events:none;}
+.trk-search input{flex:1;background:var(--blk);border:1px solid var(--linem);border-radius:8px;padding:13px 14px 13px 40px;color:#fff;font-size:14px;font-family:'IBM Plex Mono';}
+.trk-search input:focus{border-color:var(--amber);outline:none;}
+.trk-recent{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+.trk-chip{font-size:12px;font-family:'IBM Plex Mono';color:var(--muted);background:var(--blk);border:1px solid var(--line);border-radius:20px;padding:6px 13px;cursor:pointer;transition:border-color .2s,color .2s;}
+.trk-chip:hover{border-color:var(--amber);color:#fff;}
+.trk-hub{background:var(--d3);border:1px solid var(--line);border-radius:13px;padding:26px;margin-top:20px;animation:fadein .25s var(--ease);}
+.trk-hub-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:18px;border-bottom:1px solid var(--line);}
+.trk-ids .trk-order{font-size:19px;font-weight:800;color:#fff;}
+.trk-ids .trk-sub{font-size:12.5px;color:var(--muted);font-family:'IBM Plex Mono';margin-top:4px;}
+.trk-status-badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;padding:7px 14px;border-radius:20px;white-space:nowrap;}
+.trk-progress-wrap{margin:18px 0 6px;}
+.trk-progress-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:7px;font-family:'IBM Plex Mono';}
+.trk-progress-bar{height:8px;border-radius:6px;background:var(--blk);overflow:hidden;border:1px solid var(--line);}
+.trk-progress-fill{height:100%;background:linear-gradient(90deg,var(--amber),var(--amber-h));border-radius:6px;transition:width .5s var(--ease);}
+.trk-route{display:flex;align-items:center;gap:12px;margin:20px 0;padding:16px;background:var(--blk);border-radius:10px;border:1px solid var(--line);}
+.trk-route-pt{flex:1;}
+.trk-route-pt .trk-rl{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted2);font-family:'IBM Plex Mono';margin-bottom:4px;}
+.trk-route-pt .trk-rv{font-size:14px;color:#fff;font-weight:600;}
+.trk-route-arrow{color:var(--amber);flex:none;}
+.trk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0;}
+.trk-cell{background:var(--blk);border:1px solid var(--line);border-radius:9px;padding:13px 15px;}
+.trk-cell .trk-cl{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted2);font-family:'IBM Plex Mono';margin-bottom:5px;}
+.trk-cell .trk-cv{font-size:14px;color:#fff;font-weight:600;word-break:break-word;}
+.trk-section-title{font-family:'IBM Plex Mono';font-size:10.5px;letter-spacing:1.5px;color:var(--amber);text-transform:uppercase;margin:22px 0 12px;}
+.trk-docs{display:flex;gap:10px;flex-wrap:wrap;}
+.trk-contact{display:inline-flex;align-items:center;gap:8px;margin-top:18px;background:var(--wa);color:#06231a;font-weight:700;font-size:13.5px;padding:11px 18px;border-radius:8px;transition:transform .18s;}
+.trk-contact:hover{transform:translateY(-2px);}
+.trk-empty{text-align:center;padding:40px 20px;color:var(--muted);}
+@media(max-width:640px){.trk-grid{grid-template-columns:1fr 1fr;}}
 </style>
 </head>
 <body>
@@ -406,6 +439,10 @@ main{padding:108px 24px 80px;max-width:1080px;margin:0 auto;}
     <button class="dash-tab" data-tab="orders">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="6" width="14" height="10"/><path d="M15 9h4l3 3v4h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="18.5" cy="18" r="1.8"/></svg>
       Order History
+    </button>
+    <button class="dash-tab" data-tab="tracking">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Track Shipment
     </button>
     <button class="dash-tab" data-tab="invoices">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -620,6 +657,23 @@ main{padding:108px 24px 80px;max-width:1080px;margin:0 auto;}
       </div>
       <div id="orderHistoryList"></div>
     </div>
+  </div>
+
+  <!-- ═══ SHIPMENT TRACKING PANEL ═══ -->
+  <div class="dash-panel" id="panel-tracking">
+    <div class="dcard">
+      <h3>Track a shipment</h3>
+      <p class="hint">Enter an Invoice Number or Lorry Receipt (LR) Number to see exactly where your shipment is, what's left, payment status and your documents — all in one place.</p>
+      <div class="trk-search">
+        <svg class="trk-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="trkInput" placeholder="e.g. INV-2026-0007 or LR-2026-0007" autocomplete="off" onkeydown="if(event.key==='Enter'){CUST.track();return false;}">
+        <button class="btn-a" type="button" onclick="CUST.track()">Track</button>
+      </div>
+      <div class="trk-recent" id="trkRecent"></div>
+      <div class="fst" id="trkMsg" style="display:none;"></div>
+    </div>
+
+    <div id="trkResult" style="display:none;"></div>
   </div>
 
   <!-- ═══ INVOICES PANEL ═══ -->

@@ -374,6 +374,174 @@
     if (panel) panel.classList.toggle('open');
   };
 
+  /* =========================================================================
+     SHARED ORDER ENGINE  (Phase 6)
+     ----------------------------------------------------------------------
+     ONE pipeline that turns a finished order object into the full set of
+     downstream records + side-effects. BOTH the customer-quote approval
+     path and the owner Manual Order path call this, so the two converge on
+     an identical Order → Invoice → LR → Accounting → Ledger → Outstanding →
+     Reports → Excel → Audit → Notifications result. There is no second
+     implementation to drift.
+
+     Inputs:
+       orderData : a fully-built order (from SHIP.buildOrder). Must already
+                   have orderId/invoiceId/lrNumber set and status APPROVED.
+       ids       : { orderId, invoiceId, lrNumber, docketNo }
+       ctx       : {
+                     quoteRef           : (optional) DocumentReference of the
+                                          quote to flip to APPROVED in the SAME
+                                          transaction (quote path only),
+                     expectFreshStatus  : (optional) guard – throw if the quote
+                                          is already approved (quote path),
+                     freight            : freight figure for audit text,
+                     notify             : bool – send customer notification +
+                                          activity (only when a real customerUid
+                                          exists; phone customers have none),
+                     onAudit            : 'quote' | 'manual' – which audit lines,
+                     advanceForReceipt  : number – advance to auto-post as a
+                                          receipt (defaults to order's advance)
+                   }
+     Returns a Promise resolving to orderId.
+
+     The transaction writes order + invoice + LR atomically (and flips the
+     quote when present). Audit / notification / accounting are reliable
+     post-commit follow-ups (B3) — never block the result, never silently
+     vanish, idempotent so retries can't double-post.
+  ========================================================================= */
+  window.OWN.runOrderPipeline = function (orderData, ids, ctx) {
+    ctx = ctx || {};
+    var orderId   = ids.orderId;
+    var invoiceId = ids.invoiceId;
+    var lrNumber  = ids.lrNumber;
+    var docketNo  = ids.docketNo;
+    var now = new Date();
+    var due = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
+
+    var invoiceRecord = {
+      invoiceId:     invoiceId,
+      invoiceNumber: invoiceId,
+      orderId:       orderId,
+      quoteId:       orderData.quoteId || null,
+      lrNumber:      lrNumber,
+      customerUid:   orderData.customerUid || null,
+      invoiceDate:   firebase.firestore.Timestamp.fromDate(now),
+      dueDate:       firebase.firestore.Timestamp.fromDate(due),
+      createdAt:     firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt:     firebase.firestore.FieldValue.serverTimestamp()
+    };
+    var lrRecord = {
+      lrNumber:     lrNumber,
+      docketNumber: docketNo,
+      orderId:      orderId,
+      quoteId:      orderData.quoteId || null,
+      invoiceId:    invoiceId,
+      customerUid:  orderData.customerUid || null,
+      lrDate:       firebase.firestore.Timestamp.fromDate(now),
+      createdAt:    firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    var commit;
+    if (ctx.quoteRef) {
+      /* Quote path: re-read the quote INSIDE the transaction and abort if it
+         was already approved, so no duplicate/orphan order can be created. */
+      commit = fbDB.runTransaction(function (tx) {
+        return tx.get(ctx.quoteRef).then(function (snap) {
+          if (!snap.exists) throw new Error('Quote no longer exists.');
+          var fresh = snap.data();
+          if (fresh.status === EGC.QUOTE_STATUS.APPROVED || fresh.orderId) throw new Error('ALREADY_APPROVED');
+          if (fresh.status === EGC.QUOTE_STATUS.REVISED) throw new Error('Cannot approve — waiting for the customer to accept the revision.');
+          tx.set(fbDB.collection('orders').doc(orderId), orderData);
+          tx.set(fbDB.collection('invoices').doc(invoiceId), invoiceRecord);
+          tx.set(fbDB.collection('lorryReceipts').doc(lrNumber), lrRecord);
+          tx.update(ctx.quoteRef, {
+            status:    EGC.QUOTE_STATUS.APPROVED,
+            orderId:   orderId,
+            invoiceId: invoiceId,
+            lrNumber:  lrNumber,
+            freight:   ctx.freight,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        });
+      });
+    } else {
+      /* Manual path: no quote to guard. The IDs are freshly allocated and
+         unique, so a plain batched set cannot collide or duplicate. */
+      var batch = fbDB.batch();
+      batch.set(fbDB.collection('orders').doc(orderId), orderData);
+      batch.set(fbDB.collection('invoices').doc(invoiceId), invoiceRecord);
+      batch.set(fbDB.collection('lorryReceipts').doc(lrNumber), lrRecord);
+      commit = batch.commit();
+    }
+
+    return commit.then(function () {
+      /* Prime the SSoT cache so the just-created order renders instantly. */
+      if (SHIP.primeOrder) SHIP.primeOrder(orderData);
+      var amount = SHIP.computeCharges(orderData).grandTotal;
+      var route  = (orderData.pickup || '') + ' \u2192 ' + (orderData.delivery || '');
+
+      /* Notifications + activity — only when a real customer account exists.
+         Owner manual phone orders have no customerUid, so we skip those (an
+         unreadable notification would just be noise) but still audit fully. */
+      if (ctx.notify && orderData.customerUid) {
+        var notifMsg = 'Your ' + (ctx.onAudit === 'manual' ? 'order' : 'quote ' + (orderData.quoteId || '')) +
+          ' has been ' + (ctx.onAudit === 'manual' ? 'created' : 'approved') +
+          '. Order ' + orderId + ' created with invoice ' + invoiceId + ' and Lorry Receipt ' + lrNumber + '.';
+        EGC.reliableNotify(orderData.customerUid, 'order_created', notifMsg,
+          { quoteId: orderData.quoteId || null, orderId: orderId, invoiceId: invoiceId, lrNumber: lrNumber });
+        EGC.reliableActivity(orderData.customerUid, 'order_created',
+          'Order ' + orderId + ' created for ' + route, { quoteId: orderData.quoteId || null, orderId: orderId });
+        EGC.reliableAudit('notification_sent', notifMsg,
+          { targetType: 'notification', targetId: orderData.customerUid, orderId: orderId, quoteId: orderData.quoteId || null, newValue: 'order_created' });
+      }
+
+      /* Audit trail — always written (owner-readable). */
+      if (ctx.onAudit === 'manual') {
+        EGC.reliableAudit('order_created', 'Manual order ' + orderId + ' created by owner (phone booking).', {
+          targetType: 'order', targetId: orderId, orderId: orderId,
+          previousValue: null, newValue: orderId
+        });
+      } else {
+        EGC.reliableAudit('quote_accepted', 'Quote ' + (orderData.quoteId || '') + ' approved by owner at \u20B9' + ctx.freight + ' freight.', {
+          targetType: 'quote', targetId: orderData.quoteId || '', quoteId: orderData.quoteId || '',
+          previousValue: ctx.previousQuoteStatus || null, newValue: 'approved'
+        });
+        EGC.reliableAudit('order_created', 'Order ' + orderId + ' created from quote ' + (orderData.quoteId || '') + '.', {
+          targetType: 'order', targetId: orderId, orderId: orderId, quoteId: orderData.quoteId || null,
+          previousValue: null, newValue: orderId
+        });
+      }
+      EGC.reliableAudit('invoice_generated', 'Invoice ' + invoiceId + ' (' + lrNumber + ') generated for order ' + orderId + '.', {
+        targetType: 'invoice', targetId: invoiceId, orderId: orderId, quoteId: orderData.quoteId || null,
+        previousValue: null, newValue: { invoiceId: invoiceId, lrNumber: lrNumber, amount: amount }
+      });
+      EGC.reliableAudit('lr_generated', 'Lorry Receipt ' + lrNumber + ' generated for order ' + orderId + '.', {
+        targetType: 'lorryReceipt', targetId: lrNumber, orderId: orderId, quoteId: orderData.quoteId || null,
+        previousValue: null, newValue: { lrNumber: lrNumber, docketNumber: docketNo }
+      });
+
+      /* ── AUTOMATIC ACCOUNTING ──
+         Post the Sales journal entry from the order (SSoT) and, if money was
+         already received (advance and/or part-payment), a Receipt entry for
+         that total. The customer ledger / outstanding / reports all derive
+         from these. Reliable + idempotent. */
+      if (window.ACC && ACC.autoPostSales) {
+        EGC.reliable(function () {
+          return ACC.loadSettings().then(function () {
+            return ACC.autoPostSales(orderData).then(function () {
+              var ch = SHIP.computeCharges(orderData);
+              var paid = (ctx.advanceForReceipt != null) ? ctx.advanceForReceipt : (ch.advance + ch.received);
+              if (paid > 0) return ACC.autoPostReceipt(orderData, paid, ctx.paymentMode || 'bank');
+            });
+          });
+        }, { label: 'autopost:sales:' + orderId,
+             persist: { kind: 'audit', args: { action: 'autopost_pending', summary: 'Auto-post sales pending for ' + orderId, details: { orderId: orderId } } } });
+      }
+      return orderId;
+    });
+  };
+
   /* ---------------------------------------------------------
      APPROVE — validates a required freight price, then creates
      order + invoice + LR + notifications + audit. Guarded against
@@ -419,141 +587,32 @@
       /* IDs are allocated before the transaction. If the transaction aborts
          (rare race: quote already approved), the numbers are consumed but
          unused, leaving a GAP — acceptable and auditable. A DUPLICATE number
-         would not be. We deliberately prefer a gap over a duplicate.
-         (When counter sharding is added later this stays unchanged: the
-         allocator interface is the same; only its internals change.) */
-      var orderId   = ids[0];
-      var invoiceId = ids[1];
-      var lrNumber  = ids[2];
-      var docketNo  = ids[3];
+         would not be. We deliberately prefer a gap over a duplicate. */
+      var allocated = { orderId: ids[0], invoiceId: ids[1], lrNumber: ids[2], docketNo: ids[3] };
 
-      var now  = new Date();
-      var due  = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
+      /* Build the canonical ORDER from FRESH quote data (SSoT). We re-read
+         the quote inside the pipeline transaction, but build the order from
+         the freshest data we hold here; the pipeline's in-transaction guard
+         still aborts on an already-approved quote, so this can't bake stale
+         data into a duplicate. */
+      var orderData = SHIP.buildOrder({
+        orderId:   allocated.orderId,
+        quoteId:   q.quoteId || qid,
+        invoiceId: allocated.invoiceId,
+        lrNumber:  allocated.lrNumber,
+        quote:     q,
+        pricing:   { freight: freight }
+      });
+      orderData.status           = EGC.ORDER_STATUS.APPROVED;
+      orderData.invoiceGenerated = true;
+      orderData.lrGenerated      = true;
 
-      /* ── ATOMIC APPROVAL ─────────────────────────────────
-         Re-read the quote INSIDE the transaction (H4) and build the order
-         from that FRESH data — never the cached card — so a concurrent
-         revision/acceptance can't bake stale pricing or cargo into the order.
-         The guard (B2) aborts if the quote was already approved, so no
-         duplicate or orphaned order/invoice/LR can ever be created. */
-      var quoteRef = fbDB.collection('quotes').doc(qid);
-      var createdOrderData = null;   /* captured for post-commit audit/notify */
-
-      return fbDB.runTransaction(function (tx) {
-        return tx.get(quoteRef).then(function (snap) {
-          if (!snap.exists) throw new Error('Quote no longer exists.');
-          var fresh = snap.data();
-          fresh.quoteId = fresh.quoteId || qid;
-
-          if (fresh.status === EGC.QUOTE_STATUS.APPROVED || fresh.orderId) {
-            throw new Error('ALREADY_APPROVED');
-          }
-          if (fresh.status === EGC.QUOTE_STATUS.REVISED) {
-            throw new Error('Cannot approve — waiting for the customer to accept the revision.');
-          }
-
-          /* Build the canonical ORDER from FRESH quote data (SSoT). Invoice
-             and LR are thin identity-only docs that project from the order. */
-          var orderData = SHIP.buildOrder({
-            orderId:   orderId,
-            quoteId:   fresh.quoteId,
-            invoiceId: invoiceId,
-            lrNumber:  lrNumber,
-            quote:     fresh,
-            pricing:   { freight: freight }
-          });
-          orderData.status           = EGC.ORDER_STATUS.APPROVED;
-          orderData.invoiceGenerated = true;
-          orderData.lrGenerated      = true;
-          createdOrderData = orderData;
-
-          var invoiceRecord = {
-            invoiceId:     invoiceId,
-            invoiceNumber: invoiceId,
-            orderId:       orderId,
-            quoteId:       fresh.quoteId,
-            lrNumber:      lrNumber,
-            customerUid:   fresh.customerUid,
-            invoiceDate:   firebase.firestore.Timestamp.fromDate(now),
-            dueDate:       firebase.firestore.Timestamp.fromDate(due),
-            createdAt:     firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt:     firebase.firestore.FieldValue.serverTimestamp()
-          };
-
-          var lrRecord = {
-            lrNumber:     lrNumber,
-            docketNumber: docketNo,
-            orderId:      orderId,
-            quoteId:      fresh.quoteId,
-            invoiceId:    invoiceId,
-            customerUid:  fresh.customerUid,
-            lrDate:       firebase.firestore.Timestamp.fromDate(now),
-            createdAt:    firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt:    firebase.firestore.FieldValue.serverTimestamp()
-          };
-
-          tx.set(fbDB.collection('orders').doc(orderId), orderData);
-          tx.set(fbDB.collection('invoices').doc(invoiceId), invoiceRecord);
-          tx.set(fbDB.collection('lorryReceipts').doc(lrNumber), lrRecord);
-          tx.update(quoteRef, {
-            status:    EGC.QUOTE_STATUS.APPROVED,
-            orderId:   orderId,
-            invoiceId: invoiceId,
-            lrNumber:  lrNumber,
-            freight:   freight,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
-        });
-      }).then(function () {
-        /* Prime the SSoT cache so the just-created order renders instantly. */
-        if (createdOrderData && SHIP.primeOrder) SHIP.primeOrder(createdOrderData);
-        var orderData = createdOrderData || {};
-        var amount = SHIP.computeCharges(orderData).grandTotal;
-
-        /* ── RELIABLE FOLLOW-UP (B3) ──
-           The order/invoice/LR/quote already committed atomically above.
-           These audit + notification writes are durable retried follow-ups:
-           they never block the success result and never silently vanish. */
-        var notifMsg = 'Your quote ' + q.quoteId + ' has been approved. Order ' + orderId + ' created with invoice ' + invoiceId + ' and Lorry Receipt ' + lrNumber + '.';
-        EGC.reliableNotify(q.customerUid, 'order_created', notifMsg, { quoteId: q.quoteId, orderId: orderId, invoiceId: invoiceId, lrNumber: lrNumber });
-        EGC.reliableActivity(q.customerUid, 'order_created',
-          'Order ' + orderId + ' created for ' + q.pickup + ' \u2192 ' + q.delivery,
-          { quoteId: q.quoteId, orderId: orderId });
-        EGC.reliableAudit('notification_sent', notifMsg, { targetType: 'notification', targetId: q.customerUid, orderId: orderId, quoteId: q.quoteId, newValue: 'order_created' });
-        EGC.reliableAudit('quote_accepted', 'Quote ' + q.quoteId + ' approved by owner at \u20B9' + freight + ' freight.', {
-          targetType: 'quote', targetId: q.quoteId, quoteId: q.quoteId,
-          previousValue: q.status, newValue: 'approved'
-        });
-        EGC.reliableAudit('order_created', 'Order ' + orderId + ' created from quote ' + q.quoteId + '.', {
-          targetType: 'order', targetId: orderId, orderId: orderId, quoteId: q.quoteId,
-          previousValue: null, newValue: orderId
-        });
-        EGC.reliableAudit('invoice_generated', 'Invoice ' + invoiceId + ' (' + lrNumber + ') generated for order ' + orderId + '.', {
-          targetType: 'invoice', targetId: invoiceId, orderId: orderId, quoteId: q.quoteId,
-          previousValue: null, newValue: { invoiceId: invoiceId, lrNumber: lrNumber, amount: amount }
-        });
-        EGC.reliableAudit('lr_generated', 'Lorry Receipt ' + lrNumber + ' generated for order ' + orderId + '.', {
-          targetType: 'lorryReceipt', targetId: lrNumber, orderId: orderId, quoteId: q.quoteId,
-          previousValue: null, newValue: { lrNumber: lrNumber, docketNumber: docketNo }
-        });
-
-        /* ── AUTOMATIC ACCOUNTING ──
-           Post the Sales journal entry from the order (SSoT) and, if an advance
-           was taken at approval, a Receipt entry. Reliable follow-up (B3): never
-           blocks approval, idempotent so retries can't double-post. The whole
-           customer ledger / outstanding / reports flow derives from these. */
-        if (window.ACC && ACC.autoPostSales) {
-          EGC.reliable(function () {
-            return ACC.loadSettings().then(function () {
-              return ACC.autoPostSales(orderData).then(function () {
-                var adv = SHIP.computeCharges(orderData).advance;
-                if (adv > 0) return ACC.autoPostReceipt(orderData, adv, 'bank');
-              });
-            });
-          }, { label: 'autopost:sales:' + orderId,
-               persist: { kind: 'audit', args: { action: 'autopost_pending', summary: 'Auto-post sales pending for ' + orderId, details: { orderId: orderId } } } });
-        }
-        return orderId;
+      return window.OWN.runOrderPipeline(orderData, allocated, {
+        quoteRef:           fbDB.collection('quotes').doc(qid),
+        freight:            freight,
+        previousQuoteStatus: q.status,
+        notify:             true,
+        onAudit:            'quote'
       });
     }).then(function (orderId) {
       if (msg) { msg.className = 'fst ok'; msg.textContent = '\u2713 Approved \u2014 Order ' + orderId + ' created with invoice \u20B9' + freight + ' freight.'; }
@@ -1772,6 +1831,7 @@
             '<label>Transport Mode<input type="text" id="lr-tmode-' + id + '" value="' + EGC.esc(lr.transportMode || 'Road') + '"></label>' +
             '<label>Dispatch Mode<input type="text" id="lr-dispatch-' + id + '" value="' + EGC.esc(lr.dispatchMode || 'Door') + '"></label>' +
             '<label>E-Way Bill Number (optional)<input type="text" id="lr-eway-' + id + '" value="' + EGC.esc(lr.ewayBill || '') + '" placeholder="Shown on LR &amp; Invoice only if provided"></label>' +
+            '<label>Estimated Delivery Date (optional)<input type="date" id="lr-eta-' + id + '" value="' + EGC.esc(lr.estimatedDelivery || '') + '"></label>' +
           '</div>' +
 
           '<div class="ms-section">Cargo</div>' +
@@ -1953,6 +2013,7 @@
       transportMode:       val('tmode').trim() || 'Road',
       dispatchMode:        val('dispatch').trim() || 'Door',
       ewayBill:            val('eway').trim(),
+      estimatedDelivery:   val('eta').trim(),
       /* cargo */
       actualWeight:        val('aweight').trim(),
       chargedWeight:       val('cweight').trim(),
@@ -2045,5 +2106,272 @@
       if (msg) { msg.className = 'fst er'; msg.textContent = err.message || 'Could not save shipment changes.'; }
     });
   };
+
+  /* =========================================================================
+     OWNER MANUAL ORDER  (Phase 6, Part 1)
+     ----------------------------------------------------------------------
+     The traditional transport workflow: a customer phones the owner, the
+     owner already knows the freight and the parties, and needs the whole
+     Order → Invoice → LR → Accounting chain generated in one step with NO
+     approval round-trip (the owner IS the approving authority).
+
+     This reuses everything:
+       • the SAME quote form fields (personal / commercial, company
+         autocomplete + GST autofill via wireMsCompanyAutocomplete),
+       • the SAME shared charge / transport / payment fields used by Manage
+         Shipment,
+       • SHIP.buildOrder to produce a canonical order (with an `owner`
+         overrides bundle for the pre-known pricing), and
+       • OWN.runOrderPipeline — the EXACT pipeline the quote approval uses.
+
+     The resulting order is indistinguishable from a quote-derived one and
+     is fully editable afterwards through Manage Shipment.
+  ========================================================================= */
+  var _creatingManual = false;
+
+  window.OWN.openManualOrder = function () {
+    var modal = $('#manualModal');
+    if (!modal) return;
+    modal.classList.add('on');
+    document.body.style.overflow = 'hidden';
+    /* default to commercial, fresh form */
+    OWN.manualPickType('commercial');
+    var form = $('#manualForm');
+    if (form) form.reset();
+    OWN.manualPickType('commercial');
+    if (window.CO) CO.load();
+    var msg = $('#manualMsg'); if (msg) { msg.style.display = 'none'; msg.textContent = ''; }
+  };
+
+  window.OWN.closeManualOrder = function () {
+    var modal = $('#manualModal');
+    if (!modal) return;
+    modal.classList.remove('on');
+    document.body.style.overflow = '';
+  };
+
+  window.OWN.manualPickType = function (type) {
+    var isPersonal = type === 'personal';
+    var hid = $('#mShipmentType'); if (hid) hid.value = type;
+    var comm = $('#mCommercialBlock'); if (comm) comm.style.display = isPersonal ? 'none' : 'block';
+    var pers = $('#mPersonalBlock');   if (pers) pers.style.display = isPersonal ? 'block' : 'none';
+    $all('.m-type-card').forEach(function (c) { c.classList.toggle('on', c.dataset.mtype === type); });
+  };
+
+  /* Reusable company autocomplete for the manual-order modal — same
+     behaviour as the customer quote form's wireCompanyAutocomplete, bound to
+     the modal's field ids. */
+  function wireMsCompanyAutocomplete(cfg) {
+    var input = $('#' + cfg.nameId);
+    var box   = $('#' + cfg.suggestId);
+    if (!input || !box) return;
+    function setVal(id, v) { var el = $('#' + id); if (el) el.value = v || ''; }
+    function fill(co) {
+      setVal(cfg.gstId, co.gst); setVal(cfg.addressId, co.registeredAddress);
+      setVal(cfg.cityId, co.city); setVal(cfg.stateId, co.state);
+      setVal(cfg.contactId, co.contactPerson); setVal(cfg.mobileId, co.phone);
+      setVal(cfg.emailId, co.email);
+      input.value = co.name; input.dataset.coId = co._id || '';
+      box.classList.remove('on'); box.innerHTML = '';
+    }
+    function render(matches, term) {
+      var html = '';
+      matches.forEach(function (co) {
+        html += '<div class="co-suggest-item" data-msid="' + EGC.esc(co._id) + '">' +
+                  '<div class="co-nm">' + EGC.esc(co.name) + '</div>' +
+                  '<div class="co-meta">' + (co.gst ? ('GST ' + EGC.esc(co.gst) + ' \u00B7 ') : '') + EGC.esc(co.city || '') + (co.state ? (', ' + EGC.esc(co.state)) : '') + '</div>' +
+                '</div>';
+      });
+      html += '<div class="co-suggest-add" data-msadd="1">+ Add new company "' + EGC.esc(term) + '"</div>';
+      box.innerHTML = html; box.classList.add('on');
+    }
+    input.addEventListener('input', function () {
+      input.dataset.coId = '';
+      var term = input.value.trim();
+      if (!window.CO || term.length < 2) { box.classList.remove('on'); return; }
+      CO.load().then(function () { render(CO.search(term), term); });
+    });
+    input.addEventListener('focus', function () {
+      var term = input.value.trim();
+      if (window.CO && term.length >= 2) CO.load().then(function () { render(CO.search(term), term); });
+    });
+    document.addEventListener('click', function (e) {
+      var item = e.target.closest ? e.target.closest('.co-suggest-item') : null;
+      var add  = e.target.closest ? e.target.closest('.co-suggest-add')  : null;
+      if (item && box.contains(item)) { var co = CO.findBySlug(item.dataset.msid); if (co) fill(co); }
+      else if (add && box.contains(add)) { box.classList.remove('on'); var g = $('#' + cfg.contactId); if (g) g.focus(); }
+      else if (!box.contains(e.target) && e.target !== input) { box.classList.remove('on'); }
+    });
+  }
+
+  window.OWN.submitManualOrder = function () {
+    if (_creatingManual) return;
+    var msg = $('#manualMsg');
+    function fv(id) { var el = $('#' + id); return el ? String(el.value || '').trim() : ''; }
+    function setErr(t) { if (msg) { msg.style.display = 'block'; msg.className = 'fst er'; msg.textContent = t; } }
+    function setOk(t)  { if (msg) { msg.style.display = 'block'; msg.className = 'fst ok'; msg.textContent = t; } }
+
+    var shipmentType = fv('mShipmentType') || 'commercial';
+    var isPersonal   = shipmentType === 'personal';
+
+    /* ---- assemble a synthetic "quote" object in the SAME shape the customer
+            quote form produces, so SHIP.buildOrder maps it identically ---- */
+    var quote = {
+      shipmentType: shipmentType,
+      pickup:       fv('mPickup'),
+      delivery:     fv('mDelivery'),
+      materialType: fv('mMaterial'),
+      weight:       fv('mWeight'),
+      packages:     fv('mPackages'),
+      pickupDate:   fv('mPickupDate'),
+      notes:        fv('mNotes'),
+      customerUid:  null
+    };
+
+    /* common required fields */
+    if (!quote.pickup || !quote.delivery || !quote.materialType || !quote.weight) {
+      setErr('Please fill pickup, delivery, material and weight.'); return;
+    }
+
+    if (isPersonal) {
+      quote.senderName     = fv('mSenderName');
+      quote.senderMobile   = fv('mSenderMobile');
+      quote.senderEmail    = fv('mSenderEmail');
+      quote.pickupAddress  = fv('mPickupAddress');
+      quote.receiverName   = fv('mReceiverName');
+      quote.receiverMobile = fv('mReceiverMobile');
+      quote.deliveryAddress = fv('mDeliveryAddress');
+      quote.customerName   = quote.senderName;
+      quote.customerPhone  = quote.senderMobile;
+      quote.customerEmail  = quote.senderEmail;
+      if (!quote.senderName || !quote.senderMobile || !quote.pickupAddress ||
+          !quote.receiverName || !quote.receiverMobile || !quote.deliveryAddress) {
+        setErr('Please complete sender, receiver and address details.'); return;
+      }
+    } else {
+      /* Consignor (FROM) */
+      quote.companyName       = fv('mCompanyName');
+      quote.contactPerson     = fv('mContactPerson');
+      quote.companyMobile     = fv('mCompanyMobile');
+      quote.companyEmail      = fv('mCompanyEmail');
+      quote.customerGst       = fv('mGst');
+      quote.registeredAddress = fv('mRegAddress');
+      quote.city              = fv('mCity');
+      quote.state             = fv('mState');
+      /* Consignee (TO) */
+      quote.consigneeName          = fv('mConsigneeName');
+      quote.consigneeContactPerson = fv('mConsigneeContactPerson');
+      quote.consigneeContact       = fv('mConsigneeMobile');
+      quote.consigneeEmail         = fv('mConsigneeEmail');
+      quote.consigneeGstin         = fv('mConsigneeGst');
+      quote.consigneeAddress       = fv('mConsigneeAddress');
+      quote.consigneeCity          = fv('mConsigneeCity');
+      quote.consigneeState         = fv('mConsigneeState');
+      quote.customerName           = quote.companyName;
+      quote.customerPhone          = quote.companyMobile;
+      quote.customerEmail          = quote.companyEmail;
+      if (!quote.companyName || !quote.consigneeName) {
+        setErr('Please enter both the sender (consignor) and receiver (consignee) company names.'); return;
+      }
+    }
+
+    /* ---- owner-known pricing & transport (the manual-order extras) ---- */
+    var freight = INV.toNum(fv('mFreight'));
+    if (!(freight > 0)) { setErr('Enter a freight amount greater than \u20B90.'); return; }
+
+    var owner = {
+      freight:         freight,
+      haltingCharges:  INV.toNum(fv('mHalting')),
+      extraCharges:    INV.toNum(fv('mExtra')),
+      discount:        INV.toNum(fv('mDiscount')),
+      advanceReceived: INV.toNum(fv('mAdvance')),
+      vehicleNumber:   fv('mVehicle'),
+      driverName:      fv('mDriver'),
+      driverMobile:    fv('mDriverMobile'),
+      estimatedDelivery: fv('mEta'),
+      ewayBill:        fv('mEway'),
+      remarks:         quote.notes
+    };
+
+    /* validation parity with Manage Shipment: discount can't exceed charges */
+    var chargeSubtotal = owner.freight + owner.haltingCharges + owner.extraCharges;
+    if (owner.discount > chargeSubtotal) {
+      setErr('Discount (\u20B9' + owner.discount + ') cannot exceed the charges subtotal (\u20B9' + chargeSubtotal + ').'); return;
+    }
+    if (owner.advanceReceived > chargeSubtotal - owner.discount + 1) {
+      setErr('Advance received cannot exceed the order total.'); return;
+    }
+
+    _creatingManual = true;
+    var btn = $('#manualSubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating order\u2026'; }
+
+    /* Save / refresh the commercial companies in the directory (non-blocking),
+       exactly like the customer quote form does. */
+    var coPromise = Promise.resolve();
+    if (!isPersonal && window.CO) {
+      var saves = [];
+      if (quote.companyName) saves.push(CO.save({
+        name: quote.companyName, gst: quote.customerGst, registeredAddress: quote.registeredAddress,
+        city: quote.city, state: quote.state, contactPerson: quote.contactPerson,
+        email: quote.companyEmail, phone: quote.companyMobile
+      }).catch(function () {}));
+      if (quote.consigneeName) saves.push(CO.save({
+        name: quote.consigneeName, gst: quote.consigneeGstin, registeredAddress: quote.consigneeAddress,
+        city: quote.consigneeCity, state: quote.consigneeState, contactPerson: quote.consigneeContactPerson,
+        email: quote.consigneeEmail, phone: quote.consigneeContact
+      }).catch(function () {}));
+      coPromise = Promise.all(saves).catch(function () {});
+    }
+
+    coPromise.then(function () {
+      return Promise.all([EGC.nextOrderId(), EGC.nextInvoiceId(), INV.nextLrNumber(), LR.nextDocketNumber()]);
+    }).then(function (ids) {
+      var allocated = { orderId: ids[0], invoiceId: ids[1], lrNumber: ids[2], docketNo: ids[3] };
+
+      var orderData = SHIP.buildOrder({
+        orderId:   allocated.orderId,
+        quoteId:   null,                 /* no quote — pure owner order */
+        invoiceId: allocated.invoiceId,
+        lrNumber:  allocated.lrNumber,
+        quote:     quote,
+        pricing:   { freight: freight },
+        owner:     owner                 /* the pre-known pricing/transport */
+      });
+      orderData.status           = EGC.ORDER_STATUS.APPROVED;
+      orderData.invoiceGenerated = true;
+      orderData.lrGenerated      = true;
+
+      return window.OWN.runOrderPipeline(orderData, allocated, {
+        /* no quoteRef → manual batch path; owner is the authority */
+        freight: freight,
+        notify:  false,                  /* phone customer has no account */
+        onAudit: 'manual'
+      });
+    }).then(function (orderId) {
+      setOk('\u2713 Order ' + orderId + ' created with invoice, Lorry Receipt and accounting entries.');
+      toast(true, 'Manual order ' + orderId + ' created');
+      var form = $('#manualForm'); if (form) form.reset();
+      setTimeout(function () { OWN.closeManualOrder(); openTab('orders'); }, 1400);
+    }).catch(function (err) {
+      setErr((err && err.message) || 'Could not create the order.');
+      toast(false, 'Manual order failed');
+    }).finally(function () {
+      _creatingManual = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Order'; }
+    });
+  };
+
+  /* Wire the two company autocompletes in the manual-order modal once. */
+  wireMsCompanyAutocomplete({
+    nameId: 'mCompanyName', suggestId: 'mCoSuggest',
+    gstId: 'mGst', addressId: 'mRegAddress', cityId: 'mCity', stateId: 'mState',
+    contactId: 'mContactPerson', mobileId: 'mCompanyMobile', emailId: 'mCompanyEmail'
+  });
+  wireMsCompanyAutocomplete({
+    nameId: 'mConsigneeName', suggestId: 'mCoSuggestTo',
+    gstId: 'mConsigneeGst', addressId: 'mConsigneeAddress', cityId: 'mConsigneeCity', stateId: 'mConsigneeState',
+    contactId: 'mConsigneeContactPerson', mobileId: 'mConsigneeMobile', emailId: 'mConsigneeEmail'
+  });
 
 })();
